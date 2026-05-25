@@ -8,8 +8,6 @@ import {
   incrementUsage,
 } from "@/lib/subscriptions";
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
 const SYSTEM_PROMPT = `Du er Toneups rådgiver — en stille, kunnskapsrik veileder for hud og sminke.
 
 Tone:
@@ -23,6 +21,7 @@ Du selger ikke produkter — du forklarer dem.
 Bruk norsk (bokmål) som hovedspråk.`;
 
 export async function POST(req: Request) {
+  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   const supabase = createServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });

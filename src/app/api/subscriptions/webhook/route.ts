@@ -8,16 +8,15 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
-  apiVersion: "2024-11-20.acacia",
-});
-
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
 export async function POST(req: Request) {
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
+    apiVersion: "2026-04-22.dahlia",
+  });
   const sig = req.headers.get("stripe-signature");
   if (!sig) return NextResponse.json({ error: "no signature" }, { status: 400 });
 
@@ -43,7 +42,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ received: true });
   }
 
-  const sub = event.data.object as Stripe.Subscription;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sub = event.data.object as any;
   const userId = sub.metadata.toneup_user_id;
   if (!userId) {
     return NextResponse.json({ error: "no user metadata" }, { status: 400 });

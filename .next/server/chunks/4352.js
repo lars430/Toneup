@@ -1,0 +1,1 @@
+"use strict";exports.id=4352,exports.ids=[4352],exports.modules={4352:e=>{e.exports=JSON.parse('{"_meta":{"status":"pending_translation","note":"Structure mirrors no.json — translate values, keep keys identical"}}')}};

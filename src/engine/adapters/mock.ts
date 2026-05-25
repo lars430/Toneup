@@ -12,7 +12,7 @@ import type {
   SkinAnalysisResult,
   ShadeMatch,
   ProductSuggestion,
-} from "./types";
+} from "../types";
 import type { ProductCategory } from "@/types/domain";
 
 function hashToFloat(seed: string, salt: string): number {
