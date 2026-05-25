@@ -1,0 +1,34 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --line: rgba(28, 26, 23, 0.08);
+  --line-strong: rgba(28, 26, 23, 0.16);
+}
+
+@layer base {
+  body {
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "ss01", "kern";
+  }
+  h1, h2, h3 { font-family: "Cormorant Garamond", serif; font-weight: 300; }
+}
+
+@layer components {
+  .editorial-eyebrow {
+    @apply text-[10px] uppercase tracking-[0.4em] text-mute;
+  }
+  .editorial-label {
+    @apply text-[11px] uppercase tracking-[0.32em];
+  }
+  .btn-primary {
+    @apply w-full bg-ink text-bone py-4 px-6 text-[11px] uppercase tracking-[0.32em] hover:bg-soft-ink transition-colors;
+  }
+  .btn-ghost {
+    @apply w-full text-soft-ink py-2 px-6 text-[11px] uppercase tracking-[0.24em];
+  }
+  .divider-line {
+    @apply w-8 h-px bg-ink;
+  }
+}

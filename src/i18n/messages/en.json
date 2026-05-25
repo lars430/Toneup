@@ -1,0 +1,161 @@
+{
+  "brand": {
+    "name": "Toneup",
+    "tagline": "A quiet ritual of elegance"
+  },
+  "common": {
+    "continue": "Continue",
+    "back": "Back",
+    "skip": "Skip",
+    "save": "Save",
+    "cancel": "Cancel",
+    "yes": "Yes",
+    "no": "No",
+    "loading": "Loading",
+    "select_language": "Select language"
+  },
+  "nav": {
+    "home": "Home",
+    "edit": "Edit",
+    "palette": "Palette",
+    "me": "Me",
+    "makeup_bag": "My makeup bag",
+    "skin_log": "Skin log",
+    "products": "Products"
+  },
+  "onboarding": {
+    "welcome_title": "Welcome to Toneup",
+    "welcome_sub": "A personal wardrobe of colours, rituals and products — curated for you, and only you.",
+    "start": "Begin your toneup",
+    "have_account": "I already have an account",
+    "step": "Step {current} of {total}",
+    "age_title": "How old are you?",
+    "age_sub": "Helps us understand your skin's needs.",
+    "gender_title": "How do you identify?",
+    "gender_sub": "Toneup is for everyone. This is optional.",
+    "skin_type_title": "Do you know your skin type?",
+    "skin_type_sub": "We'll refine this together later.",
+    "goals_title": "What is your beauty goal?",
+    "goals_sub": "Pick as many as you like.",
+    "help_with_title": "What would you like help with?",
+    "help_with_sub": "We'll build your experience around this.",
+    "preferences_title": "Your preferences",
+    "preferences_sub": "We'll remember these in every recommendation.",
+    "life_phase_title": "Anything you'd like us to consider?",
+    "life_phase_sub": "Entirely optional. You can change this any time.",
+    "complete_title": "We're ready.",
+    "complete_sub": "Your Toneup is now personally curated."
+  },
+  "skin_type": {
+    "dry": "Dry",
+    "oily": "Oily",
+    "combination": "Combination",
+    "normal": "Normal",
+    "sensitive": "Sensitive",
+    "unknown": "I'm not sure"
+  },
+  "gender": {
+    "female": "Female",
+    "male": "Male",
+    "non_binary": "Non-binary",
+    "other": "Other",
+    "prefer_not_to_say": "Prefer not to say"
+  },
+  "goals": {
+    "less_dryness": "Less dryness",
+    "glow": "Glow",
+    "less_acne": "Less acne",
+    "even_tone": "Even tone",
+    "less_sensitivity": "Less sensitivity",
+    "anti_aging": "Prevent aging",
+    "pore_minimizing": "Smaller pores"
+  },
+  "help_with": {
+    "skincare": "Skincare",
+    "foundation": "Foundation",
+    "concealer": "Concealer",
+    "blush": "Blush",
+    "contour": "Contour",
+    "lip": "Lips",
+    "eye": "Eyes"
+  },
+  "preferences": {
+    "fragrance_free": "Fragrance-free",
+    "vegan": "Vegan",
+    "sensitive": "For sensitive skin",
+    "budget": "Budget",
+    "budget_budget": "Affordable",
+    "budget_mid": "Mid-range",
+    "budget_premium": "Premium",
+    "budget_luxury": "Luxury"
+  },
+  "life_phase": {
+    "none": "None",
+    "menstrual_cycle": "Track cycle",
+    "pregnancy": "Pregnant",
+    "breastfeeding": "Breastfeeding",
+    "menopause": "Menopause",
+    "other": "Other"
+  },
+  "home": {
+    "good_morning": "Good morning,",
+    "todays_pick": "Today's edit",
+    "curated_for_you": "Curated for you",
+    "see_all": "See all"
+  },
+  "rec": {
+    "hydration": {
+      "title": "A moment of hydration",
+      "body": "Your skin shows signs of dehydration. A richer layer this evening may help."
+    },
+    "seasonal_return": {
+      "title": "Back to seasonal favourites",
+      "body": "These worked well for you this time last year."
+    },
+    "sensitivity": {
+      "title": "A little extra calm",
+      "body": "Your skin is showing signs of irritation. Consider pausing active ingredients for a few days."
+    },
+    "product_review": {
+      "title": "Time to reconsider",
+      "body": "You've logged reactions linked to this product several times."
+    }
+  },
+  "reason": {
+    "analysis_low_hydration": "Skin analysis shows low hydration",
+    "logged_dryness": "You've logged dryness multiple times this week",
+    "cold_season": "We are in a cold season",
+    "worked_last_year_same_season": "These worked for you in the same season last year",
+    "elevated_sensitivity": "Elevated sensitivity observed",
+    "repeated_reactions_logged": "Repeated reactions logged"
+  },
+  "calibrate": {
+    "eyebrow": "The light · Ritual N° 01",
+    "ritual": "A quiet moment",
+    "title": "We read the light together",
+    "subtitle": "Hold a piece of white paper beside your face. It helps us read your skin precisely — regardless of the room you're in.",
+    "step1_title": "Find neutral daylight",
+    "step1_body": "Near a window, but out of direct sun. Avoid fluorescent and warm lamps.",
+    "step2_title": "Hold up a piece of white paper",
+    "step2_body": "A regular sheet of paper held by your cheek is enough. This is your light reference.",
+    "step3_title": "Place your face in the oval",
+    "step3_body": "We'll guide you in real time and capture when the light is right.",
+    "continue": "I'm ready",
+    "capture": "Capture",
+    "privacy_note": "The image is processed on your device. Only the colour reading is stored — not the photo itself.",
+    "feedback": {
+      "searching": "Adjusting…",
+      "ready": "Hold still — capturing now",
+      "almost": "Almost there",
+      "no_paper": "Hold up a white sheet of paper",
+      "too_dim": "We need a little more light",
+      "position_face": "Place your face in the oval",
+      "steady_paper": "Hold the paper steady and flat",
+      "failed": "We couldn't read the light. Try again.",
+      "no_camera": "We can't access the camera."
+    }
+  },
+  "disclaimer": {
+    "cosmetic_only": "Toneup offers cosmetic guidance based on your own data — not medical advice. Please consult a healthcare professional if skin concerns persist."
+  }
+}
