@@ -27,6 +27,7 @@ export async function POST(req: Request) {
 
   const { error } = await supabase.from("skin_logs").insert({
     user_id: user.id,
+    logged_at: new Date().toISOString(),
     hydration: vals.hydration,
     oiliness: vals.oiliness,
     redness: vals.redness,

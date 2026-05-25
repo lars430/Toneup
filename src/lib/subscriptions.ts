@@ -77,12 +77,17 @@ export async function getUserSubscription(
   };
 }
 
+// Set to true during testing to bypass all Pro gates
+const TESTING_MODE = true;
+
 export function hasFeature(sub: UserSubscription, feature: Feature): boolean {
+  if (TESTING_MODE) return true;
   if (sub.status !== "active" && sub.status !== "trialing") return false;
   return (FEATURES[feature] as readonly string[]).includes(sub.tier);
 }
 
 export function isProTier(sub: UserSubscription): boolean {
+  if (TESTING_MODE) return true;
   return (
     (sub.tier === "pro" || sub.tier === "pro_annual") &&
     (sub.status === "active" || sub.status === "trialing")
@@ -98,6 +103,7 @@ export async function checkQuota(
   userId: string,
   action: "analysis" | "ai_question"
 ): Promise<{ allowed: boolean; remaining: number; reason?: string }> {
+  if (TESTING_MODE) return { allowed: true, remaining: 999 };
   const sub = await getUserSubscription(supabase, userId);
   if (isProTier(sub)) return { allowed: true, remaining: Infinity };
 
