@@ -47,7 +47,7 @@ export function extractCalibration(
 
   // Sanity check: paper should be bright and near-neutral
   const paperBrightness = (paper.mean[0] + paper.mean[1] + paper.mean[2]) / 3;
-  if (paperBrightness < 180) {
+  if (paperBrightness < 120) {
     warnings.push("lighting_too_dim");
     confidence *= 0.6;
   }

@@ -28,7 +28,7 @@ export default function CapturePage({
     (async () => {
       try {
         const s = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 1280 } },
+          video: { facingMode: "user", width: { ideal: 720 }, height: { ideal: 1280 } },
           audio: false,
         });
         if (cancelled) { s.getTracks().forEach((t) => t.stop()); return; }
