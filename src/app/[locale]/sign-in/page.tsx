@@ -44,7 +44,7 @@ export default function SignInPage({
         <div className="text-center mb-10">
           <div className="font-display text-4xl tracking-wide2 mb-2">Toneup</div>
           <div className="font-display italic text-soft-ink text-lg">
-            {sent ? "Sjekk innboksen din" : "Velkommen tilbake"}
+            {sent ? "Sjekk innboksen din" : next === "onboarding" ? "Kom i gang" : "Logg inn"}
           </div>
         </div>
 

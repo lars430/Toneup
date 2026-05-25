@@ -1,18 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: { locale: string } }
-) {
+export async function GET(req: NextRequest) {
   const { searchParams, origin } = new URL(req.url);
   const code = searchParams.get("code");
   const token_hash = searchParams.get("token_hash");
   const type = searchParams.get("type");
   const next = searchParams.get("next") ?? "";
-  const locale = params.locale ?? "no";
 
-  const destination = next === "onboarding" ? `/${locale}/onboarding` : `/${locale}/home`;
+  const destination = next === "onboarding" ? "/no/onboarding" : "/no/home";
   const response = NextResponse.redirect(`${origin}${destination}`);
 
   const supabase = createServerClient(

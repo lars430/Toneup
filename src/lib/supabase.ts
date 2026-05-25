@@ -1,6 +1,3 @@
-/**
- * Supabase clients — server and browser.
- */
 import { createBrowserClient, createServerClient } from "@supabase/ssr";
 
 export function createBrowser() {
@@ -19,9 +16,18 @@ export function createServer() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get: (name: string) => cookieStore.get(name)?.value,
-        set: (name: string, value: string, options: object) => cookieStore.set({ name, value, ...options }),
-        remove: (name: string, options: object) => cookieStore.set({ name, value: "", ...options }),
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet: { name: string; value: string; options?: object }[]) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            );
+          } catch {
+            // Called from a Server Component — cookies are read-only there
+          }
+        },
       },
     }
   );

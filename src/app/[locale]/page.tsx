@@ -1,12 +1,25 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { LanguageSelector } from "@/components/LanguageSelector";
+import { createServer } from "@/lib/supabase";
 
 export default async function WelcomePage({
   params: { locale },
 }: {
   params: { locale: string };
 }) {
+  const supabase = createServer();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (user) {
+    const { data: profile } = await supabase
+      .from("user_profiles")
+      .select("user_id")
+      .eq("user_id", user.id)
+      .single();
+    redirect(profile ? `/${locale}/home` : `/${locale}/onboarding`);
+  }
+
   const t = await getTranslations();
 
   return (
