@@ -3,6 +3,12 @@ import Link from "next/link";
 import { createServer } from "@/lib/supabase";
 import { getUserSubscription, isProTier } from "@/lib/subscriptions";
 import BottomNav from "@/components/BottomNav";
+import {
+  buildSignal,
+  scoreBagItem,
+  todayNeed,
+  todayAvoid,
+} from "@/lib/fit-now";
 
 export default async function HomePage({
   params: { locale },
@@ -26,7 +32,6 @@ export default async function HomePage({
   const sub = await getUserSubscription(supabase, user.id);
   const isPro = isProTier(sub);
 
-  // Last analysis
   const { data: lastAnalysis } = await supabase
     .from("skin_analyses")
     .select("*")
@@ -35,318 +40,255 @@ export default async function HomePage({
     .limit(1)
     .single();
 
-  // Last 7 skin logs — used for trend analysis
   const { data: recentLogs } = await supabase
     .from("skin_logs")
-    .select("feel_label, dryness, oiliness, redness, glow, tags, logged_at")
+    .select("feel_label, dryness, oiliness, redness, glow, sensitivity, tags, logged_at")
     .eq("user_id", user.id)
     .order("logged_at", { ascending: false })
     .limit(7);
 
-  // Top loved bag items
-  const { data: lovedItems } = await supabase
+  const { data: bagItems } = await supabase
     .from("makeup_bag_items")
     .select("*, products(*)")
-    .eq("user_id", user.id)
-    .eq("loved", true)
-    .limit(3);
-
-  // Bag count for the action tile
-  const { count: bagCount } = await supabase
-    .from("makeup_bag_items")
-    .select("id", { count: "exact", head: true })
     .eq("user_id", user.id);
-
-  const hasSeenPalette = !!profile.first_palette_shown_at;
 
   const greeting = getGreeting();
   const season = computeSeason();
   const firstName = profile.display_name?.split(" ")[0] ?? null;
 
-  // Derive today-logged status
   const todayStr = new Date().toISOString().slice(0, 10);
   const lastLog = recentLogs?.[0] ?? null;
   const loggedToday =
     lastLog && new Date(lastLog.logged_at).toISOString().slice(0, 10) === todayStr;
 
-  // Derive skin trend from last 5 logs
-  const trendInsight = deriveTrendInsight(recentLogs ?? []);
+  const sig = buildSignal(lastAnalysis, recentLogs ?? [], profile, season);
+  const needHeadline = todayNeed(sig);
+  const avoidList = todayAvoid(sig);
 
-  // Bag product count for display
-  const productCount = bagCount ?? 0;
+  // Score bag → today's top hits
+  const scored = (bagItems ?? [])
+    .map((item) => ({ item, fit: scoreBagItem(item, sig) }))
+    .filter((s) => s.fit.verdict === "great" || s.fit.verdict === "good")
+    .sort((a, b) => b.fit.score - a.fit.score);
+
+  const topPicks = scored.slice(0, 3);
+
+  const hasAnalysis = !!lastAnalysis;
+  const productCount = bagItems?.length ?? 0;
 
   return (
     <main className="min-h-dvh bg-bone pb-28">
-      <div className="max-w-md mx-auto px-6 pt-10 pb-6">
+      <div className="max-w-md mx-auto px-6 pt-10">
 
-        {/* ── Header ─────────────────────────────────────────────── */}
-        <header className="mb-9">
+        {/* ── Quiet header ─────────────────────────────────────────── */}
+        <header className="mb-8">
           <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-3">
             {greeting} · {seasonLabel(season, locale)}
           </div>
           <h1 className="font-display text-4xl leading-tight tracking-wide2">
-            {firstName ? `${firstName}` : "Velkommen tilbake"}
+            {firstName ?? "Velkommen"}
           </h1>
-          <p className="font-display italic text-soft-ink text-base mt-2 leading-relaxed">
-            {seasonEditorialLine(season)}
-          </p>
         </header>
 
-        {/* ── Today's skin status ─────────────────────────────────── */}
-        <section className="mb-5">
-          {loggedToday ? (
-            <div className="bg-cream px-5 py-4 flex items-center justify-between">
-              <div>
-                <div className="text-[10px] uppercase tracking-[0.32em] text-mute mb-1">
-                  Logget i dag
-                </div>
-                <div className="font-display text-xl">
-                  {feelLabel(lastLog.feel_label)}
-                </div>
-                {lastLog.tags?.length > 0 && (
-                  <div className="font-display italic text-xs text-soft-ink mt-1">
-                    {lastLog.tags.slice(0, 3).map(tagLabel).join(" · ")}
-                  </div>
-                )}
+        {/* ── Today: status + need ─────────────────────────────────── */}
+        <section className="mb-4">
+          <div className="bg-ink text-bone px-5 py-5">
+            <div className="text-[10px] uppercase tracking-[0.32em] text-bone/50 mb-2">
+              I dag
+            </div>
+            <div className="flex items-baseline justify-between gap-4 mb-1">
+              <div className="font-display text-3xl leading-none">
+                {loggedToday ? feelLabel(lastLog.feel_label) : "Ikke logget"}
               </div>
+              <div className="text-right">
+                <div className="text-[10px] uppercase tracking-[0.28em] text-bone/50 mb-1">
+                  Trenger
+                </div>
+                <div className="font-display italic text-base">{needHeadline}</div>
+              </div>
+            </div>
+            {!loggedToday && (
               <Link
                 href={`/${locale}/skin-log`}
-                className="text-[10px] uppercase tracking-[0.3em] text-soft-ink underline underline-offset-4"
+                className="inline-block mt-3 text-[10px] uppercase tracking-[0.32em] text-bone/80 underline underline-offset-4"
               >
-                Endre
+                Logg huden nå →
               </Link>
-            </div>
-          ) : (
-            <Link
-              href={`/${locale}/skin-log`}
-              className="flex items-center justify-between bg-ink text-bone px-5 py-4 group"
-            >
-              <div>
-                <div className="text-[10px] uppercase tracking-[0.32em] text-bone/60 mb-1">
-                  Dagens ritual
-                </div>
-                <div className="font-display text-xl">Logg huden nå</div>
-                {lastLog && (
-                  <div className="font-display italic text-xs text-bone/50 mt-1">
-                    Sist: {formatRelative(lastLog.logged_at)}
-                  </div>
-                )}
-              </div>
-              <span className="text-bone/40 group-hover:text-bone transition-colors text-xl">
-                →
-              </span>
-            </Link>
-          )}
-        </section>
-
-        {/* ── Skin intelligence ──────────────────────────────────── */}
-        <section className="mb-5">
-          <div className="border border-stone/40 px-5 py-5">
-            <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-3">
-              Din hud nå
-            </div>
-
-            {lastAnalysis ? (
-              <div className="flex items-start justify-between gap-4 mb-4">
-                <Link
-                  href={`/${locale}/analyze/result/${lastAnalysis.id}`}
-                  className="flex-1 min-w-0 group"
-                >
-                  <div className="font-display text-2xl leading-tight mb-1 group-hover:opacity-70 transition-opacity">
-                    {lastAnalysis.raw_result?.shadeLabel ??
-                      lastAnalysis.summary?.depth ??
-                      "Din palett"}
-                  </div>
-                  <div className="font-display italic text-sm text-soft-ink">
-                    {undertoneLabel(lastAnalysis.raw_result?.undertone)} ·{" "}
-                    {formatRelative(lastAnalysis.taken_at)}
-                  </div>
-                </Link>
-                <div className="flex flex-col items-end gap-2 mt-1">
-                  <Link
-                    href={`/${locale}/analyze/result/${lastAnalysis.id}`}
-                    className="text-[10px] uppercase tracking-[0.28em] text-soft-ink underline underline-offset-4 whitespace-nowrap"
-                  >
-                    Se resultat
-                  </Link>
-                  <Link
-                    href={`/${locale}/analyze/calibrate`}
-                    className="text-[10px] uppercase tracking-[0.28em] text-mute whitespace-nowrap"
-                  >
-                    Ny analyse
-                  </Link>
-                </div>
-              </div>
-            ) : (
-              <div className="mb-4">
-                <div className="font-display text-xl mb-2">
-                  Start med din første analyse
-                </div>
-                <Link
-                  href={`/${locale}/analyze/calibrate`}
-                  className="inline-block text-[10px] uppercase tracking-[0.32em] underline underline-offset-4"
-                >
-                  Start Ritual N° 01
-                </Link>
-              </div>
             )}
-
-            {trendInsight && (
-              <div className="border-t border-stone/30 pt-4">
-                <div className="font-display italic text-sm text-soft-ink leading-relaxed">
-                  — {trendInsight}
-                </div>
+            {loggedToday && lastLog.tags?.length > 0 && (
+              <div className="font-display italic text-xs text-bone/60 mt-1">
+                {lastLog.tags.slice(0, 3).map(tagLabel).join(" · ")}
               </div>
             )}
           </div>
         </section>
 
-        {/* ── Cross-feature smart insight ────────────────────────── */}
-        {crossFeatureInsight(lastAnalysis, recentLogs ?? [], profile) && (
-          <section className="mb-5">
-            <div className="border-l-2 border-ink px-5 py-4">
-              <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-2">Personlig innsikt</div>
-              <p className="font-display italic text-sm text-soft-ink leading-relaxed">
-                {crossFeatureInsight(lastAnalysis, recentLogs ?? [], profile)}
-              </p>
-              {lastAnalysis && (
-                <Link
-                  href={`/${locale}/ask`}
-                  className="inline-block mt-3 text-[10px] uppercase tracking-[0.28em] text-soft-ink underline underline-offset-4"
-                >
-                  Spør rådgiveren
-                </Link>
-              )}
+        {/* ── Avoid today ─────────────────────────────────────────── */}
+        {avoidList.length > 0 && (
+          <section className="mb-4">
+            <div className="border border-stone/40 px-5 py-4">
+              <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-2">
+                Unngå i dag
+              </div>
+              <div className="font-display text-base leading-snug">
+                {avoidList.join(" · ")}
+              </div>
             </div>
           </section>
         )}
 
-        {/* ── Season strip ───────────────────────────────────────── */}
-        <section className="mb-8">
-          <Link
-            href={`/${locale}/season`}
-            className="flex items-center justify-between bg-cream px-5 py-4 group"
-          >
-            <div>
-              <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-1">
-                Sesongprofil · {seasonLabel(season, locale)}
-              </div>
-              <div className="font-display text-base leading-snug">
-                {seasonShortInsight(season, profile.skin_type)}
-              </div>
-            </div>
-            <span className="text-mute group-hover:text-ink transition-colors">
-              →
-            </span>
-          </Link>
-        </section>
-
-        {/* ── Quick actions ──────────────────────────────────────── */}
-        <section className="mb-8">
-          <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-4">
-            Snarveier
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Link
-              href={`/${locale}/analyze/calibrate`}
-              className="border border-stone/40 px-5 py-5 hover:border-ink transition-colors"
-            >
-              <div className="text-[10px] uppercase tracking-[0.3em] text-mute mb-2">
-                Ritual N° 01
-              </div>
-              <div className="font-display text-lg">Analyser huden</div>
-              <div className="font-display italic text-xs text-soft-ink mt-1">
-                Nøyaktig fargelesning
-              </div>
-            </Link>
-
-            <Link
-              href={`/${locale}/ask`}
-              className="border border-stone/40 px-5 py-5 hover:border-ink transition-colors"
-            >
-              <div className="text-[10px] uppercase tracking-[0.3em] text-mute mb-2">
-                {isPro ? "Pro" : "Rådgiveren"}
-              </div>
-              <div className="font-display text-lg">Spør alt</div>
-              <div className="font-display italic text-xs text-soft-ink mt-1">
-                Kjenner din historikk
-              </div>
-            </Link>
-
-            <Link
-              href={`/${locale}/bag`}
-              className="border border-stone/40 px-5 py-5 hover:border-ink transition-colors"
-            >
-              <div className="text-[10px] uppercase tracking-[0.3em] text-mute mb-2">
-                Sminkepung
-              </div>
-              <div className="font-display text-lg">Mine produkter</div>
-              <div className="font-display italic text-xs text-soft-ink mt-1">
-                {productCount > 0
-                  ? `${productCount} produkt${productCount !== 1 ? "er" : ""}`
-                  : "Legg til første produkt"}
-              </div>
-            </Link>
-
-            <Link
-              href={`/${locale}/season`}
-              className="border border-stone/40 px-5 py-5 hover:border-ink transition-colors"
-            >
-              <div className="text-[10px] uppercase tracking-[0.3em] text-mute mb-2">
-                Sesong
-              </div>
-              <div className="font-display text-lg">
-                {seasonLabel(season, locale)}
-              </div>
-              <div className="font-display italic text-xs text-soft-ink mt-1">
-                Hudmønstre over tid
-              </div>
-            </Link>
-          </div>
-        </section>
-
-        {/* ── Loved products ─────────────────────────────────────── */}
-        {lovedItems && lovedItems.length > 0 && (
-          <section className="mb-8">
-            <div className="flex justify-between items-baseline mb-4">
+        {/* ── Passer huden din i dag ──────────────────────────────── */}
+        {topPicks.length > 0 && (
+          <section className="mb-4">
+            <div className="flex items-baseline justify-between mb-3">
               <div className="text-[10px] uppercase tracking-[0.4em] text-mute">
-                Fungerer best for deg nå
+                Passer huden din i dag
               </div>
               <Link
-                href={`/${locale}/bag?tab=loved`}
+                href={`/${locale}/bag`}
                 className="text-[10px] uppercase tracking-[0.28em] text-soft-ink underline underline-offset-4"
               >
-                Se alle
+                Se alt
               </Link>
             </div>
             <div className="space-y-2">
-              {lovedItems.map((item: any) => (
-                <div key={item.id} className="bg-cream px-5 py-4 flex items-center gap-4">
-                  {item.shade_code ? (
+              {topPicks.map(({ item, fit }) => (
+                <Link
+                  key={item.id}
+                  href={
+                    item.products?.id
+                      ? `/${locale}/products/${item.products.id}`
+                      : `/${locale}/bag`
+                  }
+                  className="block bg-cream px-4 py-4 hover:bg-stone/30 transition-colors"
+                >
+                  <div className="flex items-center gap-4">
                     <div
-                      className="w-10 h-10 flex-shrink-0 rounded-sm"
-                      style={{ background: item.shade_code }}
+                      className="w-10 h-10 flex-shrink-0 rounded-sm border border-stone/30"
+                      style={{
+                        background:
+                          item.shade_code ??
+                          item.products?.attributes?.hex ??
+                          "#D9CFC1",
+                      }}
                     />
-                  ) : (
-                    <div className="w-10 h-10 flex-shrink-0 rounded-sm bg-stone/40" />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="font-display text-base truncate">
-                      {item.products?.name ?? item.notes}
-                    </div>
-                    <div className="font-display italic text-xs text-soft-ink">
-                      {item.products?.brand}
-                      {item.shade_name && ` · ${item.shade_name}`}
+                    <div className="flex-1 min-w-0">
+                      <div className="font-display text-base truncate">
+                        {item.products?.name ?? item.notes ?? "Produkt"}
+                      </div>
+                      <div className="font-display italic text-xs text-soft-ink truncate">
+                        {item.products?.brand}
+                        {item.shade_name && ` · ${item.shade_name}`}
+                      </div>
+                      {fit.reason && (
+                        <div className="text-[10px] tracking-wider text-accent mt-1">
+                          {fit.reason}
+                        </div>
+                      )}
                     </div>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           </section>
         )}
 
+        {/* ── Shade Match CTA ────────────────────────────────────── */}
+        <section className="mb-4">
+          <Link
+            href={`/${locale}/shade-match`}
+            className="block bg-cream px-5 py-5 hover:bg-stone/30 transition-colors group"
+          >
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <div className="text-[10px] uppercase tracking-[0.4em] text-accent mb-2">
+                  Shade Match
+                </div>
+                <div className="font-display text-xl leading-snug mb-1">
+                  Finn din foundation-shade
+                </div>
+                <div className="font-display italic text-xs text-soft-ink">
+                  {hasAnalysis
+                    ? `Basert på ${undertoneLabel(
+                        lastAnalysis.raw_result?.undertone ??
+                          lastAnalysis.raw_result?.raw?.undertone
+                      ).toLowerCase() || "din palett"}`
+                    : "Vi matcher mot 472 nyanser"}
+                </div>
+              </div>
+              <div className="flex flex-col items-end gap-2">
+                <FoundationSwatches analysis={lastAnalysis} />
+                <span className="text-mute group-hover:text-ink transition-colors text-base">
+                  →
+                </span>
+              </div>
+            </div>
+          </Link>
+        </section>
+
+        {/* ── Analysis card ─────────────────────────────────────── */}
+        {hasAnalysis ? (
+          <section className="mb-4">
+            <Link
+              href={`/${locale}/analyze/result/${lastAnalysis.id}`}
+              className="block border border-stone/40 px-5 py-5 hover:border-ink transition-colors"
+            >
+              <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-2">
+                Din palett
+              </div>
+              <div className="font-display text-xl leading-tight mb-1">
+                {lastAnalysis.raw_result?.shadeLabel ??
+                  lastAnalysis.summary?.depth ??
+                  "Se hudpalett"}
+              </div>
+              <div className="font-display italic text-xs text-soft-ink">
+                {undertoneLabel(
+                  lastAnalysis.raw_result?.undertone ??
+                    lastAnalysis.raw_result?.raw?.undertone
+                )}{" "}
+                · {formatRelative(lastAnalysis.taken_at)}
+              </div>
+            </Link>
+          </section>
+        ) : (
+          <section className="mb-4">
+            <Link
+              href={`/${locale}/analyze/calibrate`}
+              className="block border border-ink px-5 py-5"
+            >
+              <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-2">
+                Ritual N° 01
+              </div>
+              <div className="font-display text-xl mb-1">
+                Start med din palett
+              </div>
+              <div className="font-display italic text-xs text-soft-ink">
+                Nøyaktig fargelesning av huden din
+              </div>
+            </Link>
+          </section>
+        )}
+
+        {/* ── Ask advisor CTA ────────────────────────────────────── */}
+        <section className="mb-8">
+          <Link
+            href={`/${locale}/ask`}
+            className="flex items-center justify-between border border-stone/40 px-5 py-4 hover:border-ink transition-colors"
+          >
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-1">
+                {isPro ? "Rådgiveren · Pro" : "Rådgiveren"}
+              </div>
+              <div className="font-display text-base">
+                Spør om hud, sminke eller produkter
+              </div>
+            </div>
+            <span className="text-mute text-base">→</span>
+          </Link>
+        </section>
+
         {/* ── Pro upsell ─────────────────────────────────────────── */}
-        {!isPro && hasSeenPalette && (
+        {!isPro && hasAnalysis && (
           <section className="border border-ink px-6 py-7 text-center mb-8">
             <div className="text-[10px] uppercase tracking-[0.4em] text-accent mb-3">
               Toneup Pro
@@ -355,7 +297,7 @@ export default async function HomePage({
               En personlig rådgiver<br />som kjenner deg
             </h3>
             <p className="font-display italic text-sm text-soft-ink mb-6 leading-relaxed">
-              Sesongprofil, AI-rådgiver, ubegrensede analyser og mer.
+              Sesongprofil, AI-rådgiver, ubegrensede analyser.
             </p>
             <Link
               href={`/${locale}/upgrade`}
@@ -368,6 +310,7 @@ export default async function HomePage({
 
         <p className="text-[10px] tracking-wider text-mute text-center mt-10 leading-relaxed">
           Toneup følger huden din gjennom alle sesonger.
+          {productCount > 0 && ` · ${productCount} produkt${productCount !== 1 ? "er" : ""} i pungen`}
         </p>
       </div>
 
@@ -377,6 +320,27 @@ export default async function HomePage({
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+
+function FoundationSwatches({ analysis }: { analysis: any }) {
+  const raw = analysis?.raw_result?.raw ?? analysis?.raw_result ?? {};
+  const rgb = raw.correctedSkinRgb;
+  if (rgb && Array.isArray(rgb)) {
+    const hex = rgbToHex(rgb);
+    return <div className="w-8 h-8 rounded-sm" style={{ background: hex }} />;
+  }
+  return (
+    <div className="flex gap-1">
+      <div className="w-4 h-8 bg-[#EBCBA8]" />
+      <div className="w-4 h-8 bg-[#DDB791]" />
+      <div className="w-4 h-8 bg-[#AB7F4D]" />
+    </div>
+  );
+}
+
+function rgbToHex([r, g, b]: number[]): string {
+  const h = (n: number) => Math.round(n).toString(16).padStart(2, "0");
+  return `#${h(r)}${h(g)}${h(b)}`;
+}
 
 function getGreeting(): string {
   const h = new Date().getHours();
@@ -404,55 +368,6 @@ function seasonLabel(s: string, locale: string): string {
     fr: { spring: "Printemps", summer: "Été", autumn: "Automne", winter: "Hiver" },
   };
   return labels[locale]?.[s] ?? labels.no[s] ?? s;
-}
-
-function seasonEditorialLine(season: string): string {
-  const lines: Record<string, string> = {
-    spring: "Lyset kommer tilbake. Huden ber om lettere lag og mer fukt.",
-    summer: "Beskyttelse og letthet. Huden trenger pust og SPF.",
-    autumn: "Reparasjonens tid. Barriéren har jobbet hardt i sommer.",
-    winter: "Rikhet og varme. Tyngre kremer, langsomme ritualer.",
-  };
-  return lines[season] ?? "";
-}
-
-function seasonShortInsight(season: string, skinType?: string): string {
-  if (skinType === "dry") {
-    const m: Record<string, string> = {
-      spring: "Tørr hud kan stramne i sesongskiftet",
-      summer: "Unngå for mye eksfoliering nå",
-      autumn: "Bytt til rikere krem nå",
-      winter: "Huden din trenger ekstra fukt om vinteren",
-    };
-    return m[season] ?? "Sesongbaserte anbefalinger";
-  }
-  const m: Record<string, string> = {
-    spring: "Lette baselag og god fukt fungerer best nå",
-    summer: "Mattere finish og lett dekning er sesongfavoritter",
-    autumn: "Tid for å bygge opp rutinen igjen",
-    winter: "Fuktige serumer og rike kremer gir best resultater",
-  };
-  return m[season] ?? "Se dine sesongmønstre";
-}
-
-function deriveTrendInsight(logs: any[]): string | null {
-  if (logs.length < 2) return null;
-  const recent = logs.slice(0, 5);
-  const avg = (key: string) =>
-    recent.reduce((s, l) => s + (l[key] ?? 3), 0) / recent.length;
-
-  const avgDryness = avg("dryness");
-  const avgRedness = avg("redness");
-  const avgGlow    = avg("glow");
-
-  if (avgDryness <= 1.5)
-    return "Huden virker tørrere enn vanlig den siste uken";
-  if (avgRedness >= 4)
-    return "Rødhet har vært forhøyet de siste dagene — vurder å pause aktive ingredienser";
-  if (avgGlow >= 4.5) return "Huden stråler for øyeblikket";
-  if (avgDryness >= 4 && avgRedness <= 1.5)
-    return "Huden er i god balanse akkurat nå";
-  return null;
 }
 
 function feelLabel(key: string): string {
@@ -484,54 +399,10 @@ function tagLabel(key: string): string {
 function undertoneLabel(key?: string): string {
   const m: Record<string, string> = {
     warm: "Varm undertone",
-    cool: "Kald undertone",
+    cool: "Kjølig undertone",
     neutral: "Nøytral undertone",
   };
-  return key ? (m[key] ?? key) : "";
-}
-
-function crossFeatureInsight(
-  analysis: any,
-  logs: any[],
-  profile: any
-): string | null {
-  if (!analysis && logs.length < 2) return null;
-
-  const avg = (key: string) =>
-    logs.slice(0, 7).reduce((s, l) => s + (l[key] ?? 3), 0) / Math.max(1, logs.slice(0, 7).length);
-
-  const avgRedness  = logs.length ? avg("redness") : 0;
-  const avgDryness  = logs.length ? avg("dryness") : 0;
-  const avgGlow     = logs.length ? avg("glow") : 0;
-  const avgSens     = logs.length ? avg("sensitivity") : 0;
-
-  const concerns: string[] = (analysis?.raw_result?.concerns ?? []).map((c: any) => c.key);
-  const undertone = analysis?.raw_result?.raw?.undertone ?? analysis?.raw_result?.undertone;
-  const skinType  = profile?.skin_type;
-
-  // Analysis + log cross-reference
-  if (concerns.includes("redness") && avgRedness >= 3.5)
-    return "Analysen og loggene dine peker begge på forhøyet rødhet. Vurder å bytte til parfymefrie, milde formler denne perioden.";
-  if (concerns.includes("dullness") && avgGlow < 3)
-    return "Analysen viser matt hud og loggene bekrefter lav glød. Et hyaluronsyre-serum morgen og kveld kan gi merkbar forskjell.";
-  if (concerns.includes("redness") && skinType === "sensitive")
-    return "Med sensitiv hud og forhøyet rødhet i analysen bør aktive ingredienser som AHA og retinol brukes varsomt — eller pauses midlertidig.";
-
-  // Undertone + logs
-  if (undertone === "warm" && avgDryness <= 2)
-    return "Varm undertone ser best ut med fuktgivende, gylne highlightere. Tørrhet i loggene antyder at huden din trenger mer fukt for å stråle naturlig.";
-  if (undertone === "cool" && avgRedness >= 3.5)
-    return "Kjølig undertone kombinert med rødhet betyr at grønnbasert primer under foundation kan nøytralisere begge deler effektivt.";
-
-  // Log-only insights
-  if (avgSens >= 4 && avgRedness >= 3.5)
-    return "Loggene dine viser høy sensitivitet og rødhet over tid. Dette er et mønster som tyder på at noe i rutinen irriterer huden.";
-  if (avgDryness <= 1.8 && skinType === "dry")
-    return "Tørr hudtype kombinert med vedvarende tørrhet i loggene — det kan hjelpe å legge til et olje-steg etter krem om kvelden.";
-  if (avgGlow >= 4.5)
-    return "Huden din stråler for øyeblikket. Logg hva du gjør nå — det er verdt å huske til neste gang huden ikke samarbeider.";
-
-  return null;
+  return key ? (m[key] ?? "") : "";
 }
 
 function formatRelative(date: string): string {

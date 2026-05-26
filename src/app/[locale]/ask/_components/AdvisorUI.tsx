@@ -22,8 +22,52 @@ interface Props {
   personalQuestions: string[];
 }
 
-/** Splits answer text and wraps catalog product mentions in links */
-function AnswerText({
+// ── Section parser ───────────────────────────────────────────────────────
+type Section =
+  | { key: "answer";   label: "Svar";              body: string }
+  | { key: "need";     label: "Huden trenger nå";  body: string }
+  | { key: "avoid";    label: "Unngå i dag";       body: string }
+  | { key: "yours";    label: "Fra din pung";      body: string }
+  | { key: "alts";     label: "Gode alternativer"; body: string }
+  | { key: "note";     label: "Notat";             body: string };
+
+const MARKERS: Array<[Section["key"], Section["label"], RegExp]> = [
+  ["answer", "Svar",              /\[SVAR\]/i],
+  ["need",   "Huden trenger nå",  /\[HUDEN TRENGER\]/i],
+  ["avoid",  "Unngå i dag",       /\[UNNGÅ I DAG\]/i],
+  ["yours",  "Fra din pung",      /\[FRA DIN PUNG\]/i],
+  ["alts",   "Gode alternativer", /\[GODE ALTERNATIVER\]/i],
+  ["note",   "Notat",             /\[NOTAT\]/i],
+];
+
+function parseSections(text: string): Section[] {
+  // Find each marker position
+  const hits: Array<{ key: Section["key"]; label: Section["label"]; pos: number; matchLen: number }> = [];
+  for (const [key, label, re] of MARKERS) {
+    const m = text.match(re);
+    if (m && m.index != null) {
+      hits.push({ key, label, pos: m.index, matchLen: m[0].length });
+    }
+  }
+  if (hits.length === 0) {
+    // No markers found — treat the whole thing as answer
+    return [{ key: "answer", label: "Svar", body: text.trim() } as Section];
+  }
+  hits.sort((a, b) => a.pos - b.pos);
+  const result: Section[] = [];
+  for (let i = 0; i < hits.length; i++) {
+    const cur = hits[i];
+    const next = hits[i + 1];
+    const start = cur.pos + cur.matchLen;
+    const end = next ? next.pos : text.length;
+    const body = text.slice(start, end).trim();
+    if (body) result.push({ key: cur.key, label: cur.label, body } as Section);
+  }
+  return result;
+}
+
+/** Render a section body, linking product mentions to product pages */
+function SectionBody({
   text,
   products,
   locale,
@@ -32,14 +76,10 @@ function AnswerText({
   products?: MentionedProduct[];
   locale: string;
 }) {
-  if (!products?.length) {
-    return <>{text}</>;
-  }
+  if (!products?.length) return <>{text}</>;
 
-  // Collect all (start, end, product) mentions, sorted by position
   const mentions: { start: number; end: number; product: MentionedProduct }[] = [];
   const lowerText = text.toLowerCase();
-
   for (const p of products) {
     const needle = `${p.brand} ${p.name}`.toLowerCase();
     let pos = 0;
@@ -50,10 +90,8 @@ function AnswerText({
       pos = idx + needle.length;
     }
   }
-
   mentions.sort((a, b) => a.start - b.start);
 
-  // Remove overlapping mentions (keep first)
   const clean: typeof mentions = [];
   let cursor = 0;
   for (const m of mentions) {
@@ -63,7 +101,6 @@ function AnswerText({
     }
   }
 
-  // Build React nodes
   const nodes: React.ReactNode[] = [];
   let pos = 0;
   for (const m of clean) {
@@ -80,8 +117,55 @@ function AnswerText({
     pos = m.end;
   }
   if (pos < text.length) nodes.push(text.slice(pos));
-
   return <>{nodes}</>;
+}
+
+function ModuleCard({
+  section,
+  products,
+  locale,
+}: {
+  section: Section;
+  products?: MentionedProduct[];
+  locale: string;
+}) {
+  const styles: Record<Section["key"], string> = {
+    answer: "bg-ink text-bone",
+    need:   "bg-cream",
+    avoid:  "border border-stone/40",
+    yours:  "bg-cream",
+    alts:   "border border-stone/40",
+    note:   "border-l-2 border-mute/40 pl-4 py-1",
+  };
+  const labelStyles: Record<Section["key"], string> = {
+    answer: "text-bone/50",
+    need:   "text-mute",
+    avoid:  "text-accent",
+    yours:  "text-mute",
+    alts:   "text-mute",
+    note:   "text-mute",
+  };
+  const isInk = section.key === "answer";
+  const containerCls = section.key === "note"
+    ? styles[section.key]
+    : `${styles[section.key]} px-5 py-4`;
+
+  return (
+    <div className={containerCls}>
+      <div
+        className={`text-[10px] uppercase tracking-[0.4em] mb-2 ${labelStyles[section.key]}`}
+      >
+        {section.label}
+      </div>
+      <p
+        className={`font-display text-sm leading-relaxed whitespace-pre-wrap ${
+          isInk ? "text-bone" : "text-soft-ink"
+        }`}
+      >
+        <SectionBody text={section.body} products={products} locale={locale} />
+      </p>
+    </div>
+  );
 }
 
 export default function AdvisorUI({
@@ -153,26 +237,25 @@ export default function AdvisorUI({
       {/* Header */}
       <div className="mb-8">
         <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-3">
-          {isPro ? "Toneup Pro · Rådgiveren" : "Toneup Rådgiver"}
+          {isPro ? "Rådgiveren · Pro" : "Rådgiveren"}
         </div>
-        <h1 className="font-display text-4xl tracking-wide2 mb-2">
-          Din personlige<br />beauty-rådgiver
+        <h1 className="font-display text-4xl tracking-wide2 mb-1">
+          Hva trenger huden<br />din i dag?
         </h1>
         {!inConversation && (
-          <p className="font-display italic text-soft-ink text-base mt-3 leading-relaxed">
-            Kjenner huden din, produktene dine og historikken din.<br />
-            Svarer med kunnskap — ikke salgsspråk.
+          <p className="font-display italic text-soft-ink text-sm mt-3 leading-relaxed">
+            Kjenner palett, pung og historikk. Svarer kort.
           </p>
         )}
       </div>
 
-      {/* Context card — only before conversation starts */}
+      {/* Context card */}
       {!inConversation && contextSummary && (
-        <div className="bg-cream px-5 py-4 mb-7">
-          <div className="text-[10px] uppercase tracking-[0.32em] text-mute mb-2">
-            Rådgiveren kjenner til
+        <div className="bg-cream px-5 py-3 mb-6">
+          <div className="text-[10px] uppercase tracking-[0.32em] text-mute mb-1">
+            Kjenner til
           </div>
-          <p className="font-display italic text-sm text-soft-ink leading-relaxed">
+          <p className="font-display italic text-xs text-soft-ink leading-relaxed">
             {contextSummary}
           </p>
         </div>
@@ -181,9 +264,9 @@ export default function AdvisorUI({
       {/* Error states */}
       {error === "upgrade_required" && (
         <div className="bg-cream px-6 py-6 text-center mb-7">
-          <p className="font-display text-base mb-1">AI-rådgiveren er en Pro-funksjon.</p>
+          <p className="font-display text-base mb-1">Rådgiveren er en Pro-funksjon.</p>
           <p className="font-display italic text-sm text-soft-ink mb-5">
-            Oppgrader for å få personlig rådgivning basert på din hudhistorikk.
+            Oppgrader for personlig rådgivning basert på din historikk.
           </p>
           <Link href={`/${locale}/upgrade`}
             className="inline-block bg-ink text-bone px-6 py-3 text-[11px] uppercase tracking-[0.32em]">
@@ -194,7 +277,7 @@ export default function AdvisorUI({
       {error === "quota_exceeded" && (
         <div className="bg-cream px-6 py-6 text-center mb-7">
           <p className="font-display text-base mb-1">Du har nådd månedens grense.</p>
-          <p className="font-display italic text-sm text-soft-ink">Grensen nullstilles neste måned.</p>
+          <p className="font-display italic text-sm text-soft-ink">Nullstilles neste måned.</p>
         </div>
       )}
       {error === "error" && (
@@ -203,14 +286,14 @@ export default function AdvisorUI({
         </div>
       )}
 
-      {/* Suggested questions — only before conversation */}
+      {/* Suggested questions */}
       {!inConversation && !error && (
-        <div className="mb-7">
+        <div className="mb-6">
           <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-3">
-            Spørsmål tilpasset deg
+            Tilpasset deg
           </div>
           <div className="space-y-2">
-            {personalQuestions.map((q) => (
+            {personalQuestions.slice(0, 4).map((q) => (
               <button
                 key={q}
                 onClick={() => setQuestion(q)}
@@ -225,54 +308,39 @@ export default function AdvisorUI({
 
       {/* Conversation thread */}
       {thread.length > 0 && (
-        <div className="space-y-6 mb-7">
-          {thread.map((turn, i) => (
-            <div key={i}>
-              {/* User question */}
-              <div className="flex justify-end mb-3">
-                <div className="bg-ink text-bone px-4 py-3 max-w-[85%]">
-                  <p className="font-display text-sm leading-relaxed">{turn.q}</p>
+        <div className="space-y-7 mb-7">
+          {thread.map((turn, i) => {
+            const sections = parseSections(turn.a);
+            return (
+              <div key={i}>
+                {/* User question */}
+                <div className="flex justify-end mb-4">
+                  <div className="bg-stone/30 px-4 py-3 max-w-[85%]">
+                    <p className="font-display text-sm leading-relaxed">{turn.q}</p>
+                  </div>
+                </div>
+                {/* Module cards */}
+                <div className="space-y-3">
+                  {sections.map((s, j) => (
+                    <ModuleCard
+                      key={`${i}-${j}-${s.key}`}
+                      section={s}
+                      products={turn.mentionedProducts}
+                      locale={locale}
+                    />
+                  ))}
                 </div>
               </div>
-              {/* AI answer */}
-              <div className="bg-cream px-5 py-5">
-                <div className="text-[9px] uppercase tracking-[0.32em] text-mute mb-2">
-                  Rådgiveren
-                </div>
-                <p className="font-display text-sm leading-relaxed whitespace-pre-wrap">
-                  <AnswerText
-                    text={turn.a}
-                    products={turn.mentionedProducts}
-                    locale={locale}
-                  />
-                </p>
-              </div>
-            </div>
-          ))}
+            );
+          })}
 
-          {/* Loading indicator */}
-          {loading && (
-            <div className="bg-cream px-5 py-5">
-              <div className="text-[9px] uppercase tracking-[0.32em] text-mute mb-2">Rådgiveren</div>
-              <div className="flex gap-1">
-                <span className="w-1.5 h-1.5 bg-soft-ink/40 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                <span className="w-1.5 h-1.5 bg-soft-ink/40 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                <span className="w-1.5 h-1.5 bg-soft-ink/40 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-              </div>
-            </div>
-          )}
+          {loading && <LoadingCard />}
         </div>
       )}
 
-      {/* Loading before first answer */}
       {loading && thread.length === 0 && (
-        <div className="bg-cream px-5 py-5 mb-7">
-          <div className="text-[9px] uppercase tracking-[0.32em] text-mute mb-2">Rådgiveren</div>
-          <div className="flex gap-1">
-            <span className="w-1.5 h-1.5 bg-soft-ink/40 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-            <span className="w-1.5 h-1.5 bg-soft-ink/40 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-            <span className="w-1.5 h-1.5 bg-soft-ink/40 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-          </div>
+        <div className="mb-7">
+          <LoadingCard />
         </div>
       )}
 
@@ -284,7 +352,7 @@ export default function AdvisorUI({
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={inConversation ? "Fortsett samtalen…" : "Ditt spørsmål…"}
+          placeholder={inConversation ? "Fortsett samtalen…" : "Skriv et spørsmål…"}
           rows={3}
           className="w-full bg-cream border-none p-4 font-display text-base focus:outline-none focus:ring-1 focus:ring-ink resize-none"
         />
@@ -301,16 +369,30 @@ export default function AdvisorUI({
               onClick={reset}
               className="px-4 py-3 border border-stone/40 text-[10px] uppercase tracking-[0.28em] text-soft-ink hover:border-ink transition-colors"
             >
-              Ny samtale
+              Ny
             </button>
           )}
         </div>
       </div>
 
       <p className="text-[10px] tracking-wider text-mute text-center mt-8 leading-relaxed">
-        Toneups rådgiver er en kosmetisk veileder, ikke medisinsk profesjon.<br />
-        Ved hudtilstander, kontakt hudlege.
+        Rådgiveren er kosmetisk veiledning, ikke medisinsk profesjon.
       </p>
+    </div>
+  );
+}
+
+function LoadingCard() {
+  return (
+    <div className="bg-cream px-5 py-5">
+      <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-2">
+        Tenker
+      </div>
+      <div className="flex gap-1">
+        <span className="w-1.5 h-1.5 bg-soft-ink/40 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+        <span className="w-1.5 h-1.5 bg-soft-ink/40 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+        <span className="w-1.5 h-1.5 bg-soft-ink/40 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+      </div>
     </div>
   );
 }

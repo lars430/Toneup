@@ -112,62 +112,58 @@ function buildPersonalQuestions(
 ): string[] {
   const questions: string[] = [];
 
-  // Foundation shade matching
-  if (lastAnalysis?.raw_result?.undertone) {
-    questions.push(
-      `Hvilken foundationtone passer best for meg nå basert på undertonen min?`
-    );
-  }
-
-  // Skin-type specific
-  if (profile?.skin_type === "dry") {
-    questions.push("Hvilke fuktighetsprodukter passer best for tørr hud om " + seasonLabel(season) + "?");
-  } else if (profile?.skin_type === "oily") {
-    questions.push("Hvordan kontrollerer jeg glans uten å tørke ut huden?");
-  } else if (profile?.skin_type === "sensitive") {
-    questions.push("Hvilke ingredienser bør jeg unngå for sensitiv hud?");
-  }
-
-  // Season-specific
-  const seasonQ: Record<string, string> = {
-    spring: "Hva bør jeg endre i rutinen nå som sesongen skifter til vår?",
-    summer: "Hvilke lette baseprodukter fungerer best i sommer?",
-    autumn: "Hvordan gjenoppbygger jeg hudbarrieren etter sommeren?",
-    winter: "Hvilke produkter beskytter mot tørrhet og kulde om vinteren?",
-  };
-  questions.push(seasonQ[season]);
-
-  // Recent log-based
+  // Recent log-based — these are the most urgent
   if (lastLog?.redness >= 4) {
-    questions.push("Hva kan jeg gjøre for å dempe rødhet i huden?");
-  } else if (lastLog?.dryness <= 2) {
-    questions.push("Huden føles veldig tørr — hva er de beste ingrediensene for dyp fukt?");
+    questions.push("Hvordan demper jeg rødheten min nå?");
+  }
+  if (lastLog?.dryness <= 2) {
+    questions.push("Huden min er tørr — hva trenger jeg?");
   }
 
-  // Loved product alternatives
+  // Foundation
+  if (lastAnalysis?.raw_result?.undertone) {
+    questions.push("Hvilken foundationtone passer meg best?");
+  }
+
+  // Skin-type specific (short)
+  if (profile?.skin_type === "oily" && questions.length < 3) {
+    questions.push("Hvordan dempe glans uten å tørke ut huden?");
+  } else if (profile?.skin_type === "sensitive" && questions.length < 3) {
+    questions.push("Hvilke ingredienser bør jeg unngå?");
+  }
+
+  // Season — only if room
+  if (questions.length < 3) {
+    const seasonQ: Record<string, string> = {
+      spring: "Hva bør jeg endre nå som det er vår?",
+      summer: "Hvilke lette baseprodukter passer i sommer?",
+      autumn: "Hvordan bygger jeg opp barrieren etter sommeren?",
+      winter: "Hva beskytter huden mot vinter-tørke?",
+    };
+    questions.push(seasonQ[season]);
+  }
+
+  // Loved alternatives
   const foundationLoved = lovedItems.find(
     (i: any) => i.products?.category === "foundation"
   );
-  if (foundationLoved) {
+  if (foundationLoved && questions.length < 4) {
     questions.push(
-      `Finnes det et rimeligere alternativ til ${foundationLoved.products?.name}?`
+      `Finnes et rimeligere alternativ til ${foundationLoved.products?.name}?`
     );
   }
 
   // Life phase
-  if (profile?.life_phase === "pregnancy") {
-    questions.push("Hvilke hudpleieingredienser er trygge under graviditet?");
-  } else if (profile?.life_phase === "menstrual_cycle") {
-    questions.push("Hvordan tilpasser jeg rutinen til ulike faser i syklusen?");
+  if (profile?.life_phase === "pregnancy" && questions.length < 4) {
+    questions.push("Hvilke ingredienser er trygge i graviditeten?");
   }
 
-  // Fallback generic
+  // Fallback
   if (questions.length < 4) {
-    questions.push("Hva er forskjellen på AHA og BHA, og hva passer best for meg?");
-    questions.push("Kan jeg bruke vitamin C og retinol i samme rutine?");
+    questions.push("AHA eller BHA — hva passer meg?");
   }
 
-  return questions.slice(0, 5);
+  return questions.slice(0, 4);
 }
 
 function skinTypeLabel(key: string): string {
@@ -209,6 +205,3 @@ function undertoneLabel(key: string): string {
   return m[key] ?? key;
 }
 
-function seasonLabel(s: string): string {
-  return { spring: "våren", summer: "sommeren", autumn: "høsten", winter: "vinteren" }[s] ?? s;
-}
