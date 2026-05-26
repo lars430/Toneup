@@ -38,7 +38,7 @@ export default async function HomePage({
   // Last 7 skin logs — used for trend analysis
   const { data: recentLogs } = await supabase
     .from("skin_logs")
-    .select("feel_label, hydration, oiliness, redness, glow, tags, logged_at")
+    .select("feel_label, dryness, oiliness, redness, glow, tags, logged_at")
     .eq("user_id", user.id)
     .order("logged_at", { ascending: false })
     .limit(7);
@@ -410,16 +410,16 @@ function deriveTrendInsight(logs: any[]): string | null {
   const avg = (key: string) =>
     recent.reduce((s, l) => s + (l[key] ?? 3), 0) / recent.length;
 
-  const avgHydration = avg("hydration");
+  const avgDryness = avg("dryness");
   const avgRedness = avg("redness");
-  const avgGlow = avg("glow");
+  const avgGlow    = avg("glow");
 
-  if (avgHydration <= 1.5)
+  if (avgDryness <= 1.5)
     return "Huden virker tørrere enn vanlig den siste uken";
   if (avgRedness >= 4)
     return "Rødhet har vært forhøyet de siste dagene — vurder å pause aktive ingredienser";
   if (avgGlow >= 4.5) return "Huden stråler for øyeblikket";
-  if (avgHydration >= 4 && avgRedness <= 1.5)
+  if (avgDryness >= 4 && avgRedness <= 1.5)
     return "Huden er i god balanse akkurat nå";
   return null;
 }

@@ -27,7 +27,7 @@ export default async function SeasonPage({
   const year = new Date().getFullYear();
   const { data: seasonLogs } = await supabase
     .from("skin_logs")
-    .select("feel_label, hydration, redness, glow, sensitivity, breakouts, tags, logged_at")
+    .select("feel_label, dryness, redness, glow, sensitivity, breakouts, tags, logged_at")
     .eq("user_id", user.id)
     .gte("logged_at", `${year}-01-01`)
     .order("logged_at", { ascending: false });
@@ -306,7 +306,7 @@ function seasonName(s: string): string {
   return { spring: "Vår", summer: "Sommer", autumn: "Høst", winter: "Vinter" }[s] ?? s;
 }
 
-function seasonDescription(season: string, skinType?: string): string {
+function seasonDescription(season: string, _skinType?: string): string {
   const base: Record<string, string> = {
     spring: "Sesongskiftet fra vinter til vår er en av de mest krevende overgangene for huden.",
     summer: "Varme, sol og økt fuktighet i luften forandrer hudens behov radikalt.",
@@ -318,8 +318,8 @@ function seasonDescription(season: string, skinType?: string): string {
 
 function computeAvg(logs: any[]): Record<string, number> {
   if (!logs.length)
-    return { hydration: 0, redness: 0, glow: 0, sensitivity: 0, breakouts: 0 };
-  const keys = ["hydration", "redness", "glow", "sensitivity", "breakouts"];
+    return { dryness: 0, redness: 0, glow: 0, sensitivity: 0, breakouts: 0 };
+  const keys = ["dryness", "redness", "glow", "sensitivity", "breakouts"];
   const result: Record<string, number> = {};
   for (const k of keys) {
     result[k] =
@@ -345,9 +345,9 @@ function deriveInsights(
   season?: string
 ): string[] {
   const insights: string[] = [];
-  if (!avg.hydration) return insights;
+  if (!avg.dryness) return insights;
 
-  if (avg.hydration <= 2)
+  if (avg.dryness <= 2)
     insights.push("Huden din er gjennomgående tørrere denne sesongen enn ved normalt tilfelle.");
   if (avg.redness >= 3.5)
     insights.push("Rødhet er forhøyet denne sesongen — aktive ingredienser bør brukes varsomt.");
@@ -356,7 +356,7 @@ function deriveInsights(
   if (avg.sensitivity >= 4)
     insights.push("Sensitiv periode — huden reagerer mer enn vanlig. Velg milde formler.");
 
-  if (recent.hydration && avg.hydration && recent.hydration < avg.hydration - 0.5)
+  if (recent.hydration && avg.dryness && recent.hydration < avg.dryness - 0.5)
     insights.push("Huden virker tørrere nå enn tidligere denne sesongen.");
   if (recent.glow && avg.glow && recent.glow > avg.glow + 0.5)
     insights.push("Huden din stråler mer nå enn resten av sesongen — noe virker.");
@@ -369,7 +369,7 @@ function deriveInsights(
   return insights.slice(0, 4);
 }
 
-function seasonAdvice(season: string, skinType?: string): string[] {
+function seasonAdvice(season: string, _skinType?: string): string[] {
   const base: Record<string, string[]> = {
     spring: [
       "Bytt gradvis fra tunge vinterprodukter til lettere formler — plutselig bytte kan forstyrre hudbarrieren.",
