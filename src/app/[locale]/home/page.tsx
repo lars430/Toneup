@@ -201,6 +201,26 @@ export default async function HomePage({
           </div>
         </section>
 
+        {/* ── Cross-feature smart insight ────────────────────────── */}
+        {crossFeatureInsight(lastAnalysis, recentLogs ?? [], profile) && (
+          <section className="mb-5">
+            <div className="border-l-2 border-ink px-5 py-4">
+              <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-2">Personlig innsikt</div>
+              <p className="font-display italic text-sm text-soft-ink leading-relaxed">
+                {crossFeatureInsight(lastAnalysis, recentLogs ?? [], profile)}
+              </p>
+              {lastAnalysis && (
+                <Link
+                  href={`/${locale}/ask`}
+                  className="inline-block mt-3 text-[10px] uppercase tracking-[0.28em] text-soft-ink underline underline-offset-4"
+                >
+                  Spør rådgiveren
+                </Link>
+              )}
+            </div>
+          </section>
+        )}
+
         {/* ── Season strip ───────────────────────────────────────── */}
         <section className="mb-8">
           <Link
@@ -468,6 +488,50 @@ function undertoneLabel(key?: string): string {
     neutral: "Nøytral undertone",
   };
   return key ? (m[key] ?? key) : "";
+}
+
+function crossFeatureInsight(
+  analysis: any,
+  logs: any[],
+  profile: any
+): string | null {
+  if (!analysis && logs.length < 2) return null;
+
+  const avg = (key: string) =>
+    logs.slice(0, 7).reduce((s, l) => s + (l[key] ?? 3), 0) / Math.max(1, logs.slice(0, 7).length);
+
+  const avgRedness  = logs.length ? avg("redness") : 0;
+  const avgDryness  = logs.length ? avg("dryness") : 0;
+  const avgGlow     = logs.length ? avg("glow") : 0;
+  const avgSens     = logs.length ? avg("sensitivity") : 0;
+
+  const concerns: string[] = (analysis?.raw_result?.concerns ?? []).map((c: any) => c.key);
+  const undertone = analysis?.raw_result?.raw?.undertone ?? analysis?.raw_result?.undertone;
+  const skinType  = profile?.skin_type;
+
+  // Analysis + log cross-reference
+  if (concerns.includes("redness") && avgRedness >= 3.5)
+    return "Analysen og loggene dine peker begge på forhøyet rødhet. Vurder å bytte til parfymefrie, milde formler denne perioden.";
+  if (concerns.includes("dullness") && avgGlow < 3)
+    return "Analysen viser matt hud og loggene bekrefter lav glød. Et hyaluronsyre-serum morgen og kveld kan gi merkbar forskjell.";
+  if (concerns.includes("redness") && skinType === "sensitive")
+    return "Med sensitiv hud og forhøyet rødhet i analysen bør aktive ingredienser som AHA og retinol brukes varsomt — eller pauses midlertidig.";
+
+  // Undertone + logs
+  if (undertone === "warm" && avgDryness <= 2)
+    return "Varm undertone ser best ut med fuktgivende, gylne highlightere. Tørrhet i loggene antyder at huden din trenger mer fukt for å stråle naturlig.";
+  if (undertone === "cool" && avgRedness >= 3.5)
+    return "Kjølig undertone kombinert med rødhet betyr at grønnbasert primer under foundation kan nøytralisere begge deler effektivt.";
+
+  // Log-only insights
+  if (avgSens >= 4 && avgRedness >= 3.5)
+    return "Loggene dine viser høy sensitivitet og rødhet over tid. Dette er et mønster som tyder på at noe i rutinen irriterer huden.";
+  if (avgDryness <= 1.8 && skinType === "dry")
+    return "Tørr hudtype kombinert med vedvarende tørrhet i loggene — det kan hjelpe å legge til et olje-steg etter krem om kvelden.";
+  if (avgGlow >= 4.5)
+    return "Huden din stråler for øyeblikket. Logg hva du gjør nå — det er verdt å huske til neste gang huden ikke samarbeider.";
+
+  return null;
 }
 
 function formatRelative(date: string): string {

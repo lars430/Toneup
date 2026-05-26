@@ -58,7 +58,7 @@ export async function POST(req: Request) {
     // Last 7 skin logs
     const { data: recentLogs } = await supabase
       .from("skin_logs")
-      .select("feel_label, hydration, redness, glow, sensitivity, breakouts, tags, logged_at")
+      .select("feel_label, dryness, redness, glow, sensitivity, breakouts, tags, logged_at")
       .eq("user_id", user.id)
       .order("logged_at", { ascending: false })
       .limit(7);
@@ -121,7 +121,7 @@ export async function POST(req: Request) {
             recentLogs.length
         );
       lines.push(
-        `Siste ${recentLogs.length} hudlogger — gjennomsnitt: fuktighet=${avg("hydration")}/5, rødhet=${avg("redness")}/5, glød=${avg("glow")}/5, sensitivitet=${avg("sensitivity")}/5`
+        `Siste ${recentLogs.length} hudlogger — gjennomsnitt: fuktighet=${avg("dryness")}/5, rødhet=${avg("redness")}/5, glød=${avg("glow")}/5, sensitivitet=${avg("sensitivity")}/5`
       );
       const recentFeels = recentLogs.map((l) => l.feel_label).filter(Boolean);
       if (recentFeels.length)
@@ -156,10 +156,14 @@ export async function POST(req: Request) {
     contextBlock = "\n\n" + lines.join("\n");
   }
 
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return NextResponse.json({ error: "ai_not_configured" }, { status: 503 });
+  }
+
   try {
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 900,
+      max_tokens: 1200,
       system: BASE_SYSTEM_PROMPT,
       messages: [
         {
@@ -182,19 +186,27 @@ export async function POST(req: Request) {
       (response.usage.input_tokens * 3 + response.usage.output_tokens * 15) /
       1_000_000;
 
-    await supabase.from("ai_questions").insert({
-      user_id: user.id,
-      question,
-      answer,
-      context_used: { included_profile: includeProfile, context_length: contextBlock.length },
-      tokens_used: tokensUsed,
-      cost_usd: costUsd,
-    });
-
-    await incrementUsage(supabase, user.id, "ai_question");
+    // Best-effort logging — don't fail the response if table doesn't exist
+    try {
+      await supabase.from("ai_questions").insert({
+        user_id: user.id,
+        question,
+        answer,
+        context_used: { included_profile: includeProfile, context_length: contextBlock.length },
+        tokens_used: tokensUsed,
+        cost_usd: costUsd,
+      });
+      await incrementUsage(supabase, user.id, "ai_question");
+    } catch {
+      // non-fatal
+    }
 
     return NextResponse.json({ answer });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error("[ai/ask] Anthropic error:", err?.message);
+    return NextResponse.json(
+      { error: err?.message ?? "ai_error" },
+      { status: 500 }
+    );
   }
 }

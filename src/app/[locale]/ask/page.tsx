@@ -32,7 +32,7 @@ export default async function AskPage({
   // Last skin log
   const { data: lastLog } = await supabase
     .from("skin_logs")
-    .select("feel_label, hydration, redness, glow, sensitivity, tags, logged_at")
+    .select("feel_label, dryness, redness, glow, sensitivity, tags, logged_at")
     .eq("user_id", user.id)
     .order("logged_at", { ascending: false })
     .limit(1)
@@ -140,7 +140,7 @@ function buildPersonalQuestions(
   // Recent log-based
   if (lastLog?.redness >= 4) {
     questions.push("Hva kan jeg gjøre for å dempe rødhet i huden?");
-  } else if (lastLog?.hydration <= 2) {
+  } else if (lastLog?.dryness <= 2) {
     questions.push("Huden føles veldig tørr — hva er de beste ingrediensene for dyp fukt?");
   }
 

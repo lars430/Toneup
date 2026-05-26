@@ -82,7 +82,7 @@ export default async function MePage({
           <div className="editorial-eyebrow mb-4">Din reise</div>
           <div className="grid grid-cols-4 gap-2">
             <StatTile value={analysisCount ?? 0} label="Analyser" href={`/${locale}/me/analyses`} />
-            <StatTile value={logCount ?? 0} label="Logger" />
+            <StatTile value={logCount ?? 0} label="Logger" href={`/${locale}/me/logs`} />
             <StatTile value={bagCount ?? 0} label="Produkter" href={`/${locale}/bag`} />
             <StatTile value={lovedCount ?? 0} label="Elsket" href={`/${locale}/bag?tab=loved`} accent />
           </div>
