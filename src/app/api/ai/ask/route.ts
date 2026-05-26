@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "quota_exceeded" }, { status: 429 });
   }
 
-  const { question, includeProfile } = await req.json();
+  const { question, includeProfile, conversationHistory } = await req.json();
 
   // Build rich personal context
   let contextBlock = "";
@@ -160,19 +160,39 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "ai_not_configured" }, { status: 503 });
   }
 
+  // Build multi-turn message array from conversation history
+  type AnthropicRole = "user" | "assistant";
+  const messages: { role: AnthropicRole; content: string }[] = [];
+
+  if (conversationHistory?.length) {
+    // First turn includes the profile context
+    const firstQ = conversationHistory[0];
+    messages.push({
+      role: "user",
+      content: contextBlock ? `${contextBlock}\n\nBrukerens spørsmål: ${firstQ.q}` : firstQ.q,
+    });
+    messages.push({ role: "assistant", content: firstQ.a });
+    // Remaining history turns
+    for (const turn of conversationHistory.slice(1)) {
+      messages.push({ role: "user", content: turn.q });
+      messages.push({ role: "assistant", content: turn.a });
+    }
+    // Current question (no context repeat)
+    messages.push({ role: "user", content: question });
+  } else {
+    // First question — inject context
+    messages.push({
+      role: "user",
+      content: contextBlock ? `${contextBlock}\n\nBrukerens spørsmål: ${question}` : question,
+    });
+  }
+
   try {
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 1200,
       system: BASE_SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: contextBlock
-            ? `${contextBlock}\n\nBrukerens spørsmål: ${question}`
-            : question,
-        },
-      ],
+      messages,
     });
 
     const answer = response.content

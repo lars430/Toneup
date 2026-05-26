@@ -1,7 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
+
+interface Turn {
+  q: string;
+  a: string;
+}
 
 interface Props {
   locale: string;
@@ -17,39 +22,39 @@ export default function AdvisorUI({
   personalQuestions,
 }: Props) {
   const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState("");
+  const [thread, setThread] = useState<Turn[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [history, setHistory] = useState<Array<{ q: string; a: string }>>([]);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [thread, loading]);
 
   async function ask() {
-    if (!question.trim()) return;
+    if (!question.trim() || loading) return;
+    const q = question.trim();
+    setQuestion("");
     setLoading(true);
     setError("");
-    setAnswer("");
 
     const res = await fetch("/api/ai/ask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, includeProfile: true }),
+      body: JSON.stringify({
+        question: q,
+        includeProfile: true,
+        // Send oldest-first so API can reconstruct the turn sequence
+        conversationHistory: thread,
+      }),
     });
 
-    if (res.status === 402) {
-      setError("upgrade_required");
-      setLoading(false);
-      return;
-    }
-    if (res.status === 429) {
-      setError("quota_exceeded");
-      setLoading(false);
-      return;
-    }
+    if (res.status === 402) { setError("upgrade_required"); setLoading(false); return; }
+    if (res.status === 429) { setError("quota_exceeded"); setLoading(false); return; }
 
     const data = await res.json();
     if (data.answer) {
-      setAnswer(data.answer);
-      setHistory((h) => [{ q: question, a: data.answer }, ...h]);
-      setQuestion("");
+      setThread((prev) => [...prev, { q, a: data.answer }]);
     } else {
       setError("error");
     }
@@ -63,6 +68,14 @@ export default function AdvisorUI({
     }
   }
 
+  function reset() {
+    setThread([]);
+    setError("");
+    setQuestion("");
+  }
+
+  const inConversation = thread.length > 0;
+
   return (
     <div className="max-w-md mx-auto px-6 pt-10 pb-6">
 
@@ -74,14 +87,16 @@ export default function AdvisorUI({
         <h1 className="font-display text-4xl tracking-wide2 mb-2">
           Din personlige<br />beauty-rådgiver
         </h1>
-        <p className="font-display italic text-soft-ink text-base mt-3 leading-relaxed">
-          Kjenner huden din, produktene dine og historikken din.<br />
-          Svarer med kunnskap — ikke salgsspråk.
-        </p>
+        {!inConversation && (
+          <p className="font-display italic text-soft-ink text-base mt-3 leading-relaxed">
+            Kjenner huden din, produktene dine og historikken din.<br />
+            Svarer med kunnskap — ikke salgsspråk.
+          </p>
+        )}
       </div>
 
-      {/* Context card — what the advisor knows */}
-      {contextSummary && (
+      {/* Context card — only before conversation starts */}
+      {!inConversation && contextSummary && (
         <div className="bg-cream px-5 py-4 mb-7">
           <div className="text-[10px] uppercase tracking-[0.32em] text-mute mb-2">
             Rådgiveren kjenner til
@@ -95,44 +110,34 @@ export default function AdvisorUI({
       {/* Error states */}
       {error === "upgrade_required" && (
         <div className="bg-cream px-6 py-6 text-center mb-7">
-          <p className="font-display text-base mb-1">
-            AI-rådgiveren er en Pro-funksjon.
-          </p>
+          <p className="font-display text-base mb-1">AI-rådgiveren er en Pro-funksjon.</p>
           <p className="font-display italic text-sm text-soft-ink mb-5">
             Oppgrader for å få personlig rådgivning basert på din hudhistorikk.
           </p>
-          <Link
-            href={`/${locale}/upgrade`}
-            className="inline-block bg-ink text-bone px-6 py-3 text-[11px] uppercase tracking-[0.32em]"
-          >
+          <Link href={`/${locale}/upgrade`}
+            className="inline-block bg-ink text-bone px-6 py-3 text-[11px] uppercase tracking-[0.32em]">
             Se Pro · 14 dagers prøvetid
           </Link>
         </div>
       )}
-
       {error === "quota_exceeded" && (
         <div className="bg-cream px-6 py-6 text-center mb-7">
-          <p className="font-display text-base mb-1">
-            Du har nådd månedens grense for spørsmål.
-          </p>
-          <p className="font-display italic text-sm text-soft-ink">
-            Grensen nullstilles neste måned.
-          </p>
+          <p className="font-display text-base mb-1">Du har nådd månedens grense.</p>
+          <p className="font-display italic text-sm text-soft-ink">Grensen nullstilles neste måned.</p>
         </div>
       )}
-
       {error === "error" && (
         <div className="bg-cream px-5 py-4 mb-7">
-          <p className="font-display text-sm text-soft-ink">
-            Noe gikk galt. Prøv igjen.
-          </p>
+          <p className="font-display text-sm text-soft-ink">Noe gikk galt. Prøv igjen.</p>
         </div>
       )}
 
-      {/* Personalized suggested questions */}
-      {history.length === 0 && !answer && !error && (
+      {/* Suggested questions — only before conversation */}
+      {!inConversation && !error && (
         <div className="mb-7">
-          <div className="editorial-eyebrow mb-3">Spørsmål tilpasset deg</div>
+          <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-3">
+            Spørsmål tilpasset deg
+          </div>
           <div className="space-y-2">
             {personalQuestions.map((q) => (
               <button
@@ -147,62 +152,87 @@ export default function AdvisorUI({
         </div>
       )}
 
-      {/* Question input */}
+      {/* Conversation thread */}
+      {thread.length > 0 && (
+        <div className="space-y-6 mb-7">
+          {thread.map((turn, i) => (
+            <div key={i}>
+              {/* User question */}
+              <div className="flex justify-end mb-3">
+                <div className="bg-ink text-bone px-4 py-3 max-w-[85%]">
+                  <p className="font-display text-sm leading-relaxed">{turn.q}</p>
+                </div>
+              </div>
+              {/* AI answer */}
+              <div className="bg-cream px-5 py-5">
+                <div className="text-[9px] uppercase tracking-[0.32em] text-mute mb-2">
+                  Rådgiveren
+                </div>
+                <p className="font-display text-sm leading-relaxed whitespace-pre-wrap">
+                  {turn.a}
+                </p>
+              </div>
+            </div>
+          ))}
+
+          {/* Loading indicator */}
+          {loading && (
+            <div className="bg-cream px-5 py-5">
+              <div className="text-[9px] uppercase tracking-[0.32em] text-mute mb-2">Rådgiveren</div>
+              <div className="flex gap-1">
+                <span className="w-1.5 h-1.5 bg-soft-ink/40 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                <span className="w-1.5 h-1.5 bg-soft-ink/40 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                <span className="w-1.5 h-1.5 bg-soft-ink/40 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Loading before first answer */}
+      {loading && thread.length === 0 && (
+        <div className="bg-cream px-5 py-5 mb-7">
+          <div className="text-[9px] uppercase tracking-[0.32em] text-mute mb-2">Rådgiveren</div>
+          <div className="flex gap-1">
+            <span className="w-1.5 h-1.5 bg-soft-ink/40 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+            <span className="w-1.5 h-1.5 bg-soft-ink/40 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+            <span className="w-1.5 h-1.5 bg-soft-ink/40 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+          </div>
+        </div>
+      )}
+
+      <div ref={bottomRef} />
+
+      {/* Input */}
       <div className="mb-7">
         <textarea
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ditt spørsmål…"
+          placeholder={inConversation ? "Fortsett samtalen…" : "Ditt spørsmål…"}
           rows={3}
           className="w-full bg-cream border-none p-4 font-display text-base focus:outline-none focus:ring-1 focus:ring-ink resize-none"
         />
-        <button
-          onClick={ask}
-          disabled={loading || !question.trim()}
-          className="btn-primary mt-3 disabled:opacity-40"
-        >
-          {loading ? "Tenker…" : "Spør"}
-        </button>
+        <div className="flex gap-3 mt-3">
+          <button
+            onClick={ask}
+            disabled={loading || !question.trim()}
+            className="btn-primary flex-1 disabled:opacity-40"
+          >
+            {loading ? "Tenker…" : inConversation ? "Send" : "Spør"}
+          </button>
+          {inConversation && (
+            <button
+              onClick={reset}
+              className="px-4 py-3 border border-stone/40 text-[10px] uppercase tracking-[0.28em] text-soft-ink hover:border-ink transition-colors"
+            >
+              Ny samtale
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Current answer */}
-      {answer && (
-        <div className="bg-cream px-6 py-6 mb-7">
-          <div className="editorial-eyebrow mb-3">Svar</div>
-          <div className="font-display text-base leading-relaxed whitespace-pre-wrap">
-            {answer}
-          </div>
-          <button
-            onClick={() => {
-              setAnswer("");
-              setQuestion("");
-            }}
-            className="mt-5 text-[10px] uppercase tracking-[0.3em] text-soft-ink underline underline-offset-4"
-          >
-            Nytt spørsmål
-          </button>
-        </div>
-      )}
-
-      {/* History */}
-      {history.length > 1 && (
-        <div className="mt-10">
-          <div className="editorial-eyebrow mb-5">Tidligere spørsmål</div>
-          {history.slice(1).map((h, i) => (
-            <details key={i} className="mb-3 border-b border-stone/30 pb-3">
-              <summary className="font-display text-base cursor-pointer py-1">
-                {h.q}
-              </summary>
-              <p className="font-display text-sm text-soft-ink mt-3 leading-relaxed whitespace-pre-wrap">
-                {h.a}
-              </p>
-            </details>
-          ))}
-        </div>
-      )}
-
-      <p className="text-[10px] tracking-wider text-mute text-center mt-12 leading-relaxed">
+      <p className="text-[10px] tracking-wider text-mute text-center mt-8 leading-relaxed">
         Toneups rådgiver er en kosmetisk veileder, ikke medisinsk profesjon.<br />
         Ved hudtilstander, kontakt hudlege.
       </p>
