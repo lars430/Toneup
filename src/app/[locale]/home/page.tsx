@@ -193,8 +193,8 @@ export default async function HomePage({
           </section>
         )}
 
-        {/* ── Shade Match CTA ────────────────────────────────────── */}
-        <section className="mb-4">
+        {/* ── Match CTAs: Shade + Routine ─────────────────────── */}
+        <section className="mb-4 space-y-3">
           <Link
             href={`/${locale}/shade-match`}
             className="block bg-cream px-5 py-5 hover:bg-stone/30 transition-colors group"
@@ -222,6 +222,28 @@ export default async function HomePage({
                   →
                 </span>
               </div>
+            </div>
+          </Link>
+
+          <Link
+            href={`/${locale}/routine-match`}
+            className="block bg-cream px-5 py-5 hover:bg-stone/30 transition-colors group"
+          >
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <div className="text-[10px] uppercase tracking-[0.4em] text-accent mb-2">
+                  Rutine Match
+                </div>
+                <div className="font-display text-xl leading-snug mb-1">
+                  Hudpleie tilpasset deg
+                </div>
+                <div className="font-display italic text-xs text-soft-ink">
+                  Rangert mot hudtype, behov og dagens logg
+                </div>
+              </div>
+              <span className="text-mute group-hover:text-ink transition-colors text-base">
+                →
+              </span>
             </div>
           </Link>
         </section>

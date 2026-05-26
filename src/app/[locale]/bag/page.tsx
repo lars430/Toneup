@@ -180,6 +180,26 @@ export default async function BagPage({
           </Link>
         )}
 
+        {/* All tab — Routine Match CTA */}
+        {activeTab === "all" && items.length > 0 && (
+          <Link
+            href={`/${locale}/routine-match`}
+            className="block bg-ink text-bone px-5 py-4 mb-6 hover:bg-soft-ink transition-colors"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.4em] text-bone/50 mb-1">
+                  Rutine Match
+                </div>
+                <div className="font-display text-base">
+                  Finn hudpleie som passer deg
+                </div>
+              </div>
+              <span className="text-bone/70 text-base">→</span>
+            </div>
+          </Link>
+        )}
+
         {/* Empty state */}
         {visible.length === 0 && (
           <div className="text-center py-16">
