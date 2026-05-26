@@ -1,50 +1,57 @@
 export interface RetailerLink {
   name: string;
   url: string;
+  verified: boolean;
 }
 
-const RETAILERS: Record<string, Array<{ name: string; search: string }>> = {
-  no: [
-    { name: "Kicks",       search: "https://www.kicks.no/search/?q=" },
-    { name: "Nordicfeel",  search: "https://www.nordicfeel.no/search/?q=" },
-    { name: "Eleven",      search: "https://www.eleven.no/search?query=" },
-  ],
-  da: [
-    { name: "Kicks",       search: "https://www.kicks.dk/search/?q=" },
-    { name: "Matas",       search: "https://www.matas.dk/search?q=" },
-    { name: "Nordicfeel",  search: "https://www.nordicfeel.dk/search/?q=" },
-  ],
-  sv: [
-    { name: "Kicks",       search: "https://www.kicks.se/search/?q=" },
-    { name: "Lyko",        search: "https://www.lyko.se/sv/search?q=" },
-    { name: "Nordicfeel",  search: "https://www.nordicfeel.se/search/?q=" },
-  ],
-  en: [
-    { name: "Sephora",      search: "https://www.sephora.com/search?keyword=" },
-    { name: "LookFantastic", search: "https://www.lookfantastic.com/searchterm/" },
-    { name: "Cult Beauty",  search: "https://www.cultbeauty.com/search?q=" },
-  ],
-  fr: [
-    { name: "Sephora",  search: "https://www.sephora.fr/search?q=" },
-    { name: "Nocibé",   search: "https://www.nocibe.fr/recherche?q=" },
-    { name: "LookFantastic", search: "https://www.lookfantastic.fr/searchterm/" },
-  ],
-  es: [
-    { name: "Sephora",  search: "https://www.sephora.es/search?q=" },
-    { name: "Primor",   search: "https://www.primor.eu/catalogsearch/result/?q=" },
-    { name: "LookFantastic", search: "https://www.lookfantastic.es/searchterm/" },
-  ],
+// Google Shopping parameters per locale — shows only real retailers that stock the product
+const GOOGLE_SHOPPING: Record<string, { gl: string; hl: string }> = {
+  no: { gl: "no", hl: "no" },
+  da: { gl: "dk", hl: "da" },
+  sv: { gl: "se", hl: "sv" },
+  en: { gl: "us", hl: "en" },
+  fr: { gl: "fr", hl: "fr" },
+  es: { gl: "es", hl: "es" },
 };
 
+/**
+ * Returns purchase links for a product.
+ *
+ * Priority:
+ * 1. Verified product-specific URLs stored in the DB (purchase_urls column)
+ * 2. Google Shopping fallback — country-localised, only shows real retailers
+ */
 export function getPurchaseLinks(
   locale: string,
   brand: string,
   name: string,
-  shadeName?: string | null
+  shadeName: string | null | undefined,
+  purchaseUrls: Record<string, string | string[]> | null | undefined
 ): RetailerLink[] {
-  const retailers = RETAILERS[locale] ?? RETAILERS.en;
+  // 1. Verified URLs from DB for this locale, or global fallback
+  const raw = purchaseUrls?.[locale] ?? purchaseUrls?.["global"];
+  const verified = raw ? (Array.isArray(raw) ? raw : [raw]) : [];
+
+  if (verified.length > 0) {
+    return verified.map((url) => {
+      let name = url;
+      try {
+        name = new URL(url).hostname.replace(/^www\./, "");
+      } catch {}
+      return { name, url, verified: true };
+    });
+  }
+
+  // 2. Google Shopping fallback
+  const gs = GOOGLE_SHOPPING[locale] ?? GOOGLE_SHOPPING.en;
   const query = encodeURIComponent(
     [brand, name, shadeName].filter(Boolean).join(" ")
   );
-  return retailers.map((r) => ({ name: r.name, url: r.search + query }));
+  return [
+    {
+      name: "Google Shopping",
+      url: `https://www.google.com/search?q=${query}&tbm=shop&gl=${gs.gl}&hl=${gs.hl}`,
+      verified: false,
+    },
+  ];
 }

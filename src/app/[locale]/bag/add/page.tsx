@@ -26,6 +26,7 @@ export default function AddProductPage({
   const [results, setResults] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState<string | null>(null);
+  const [added, setAdded] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const timer = setTimeout(() => search(), 300);
@@ -47,15 +48,18 @@ export default function AddProductPage({
     setLoading(false);
   }
 
-  async function add(productId: string) {
+  async function add(e: React.MouseEvent, productId: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (adding) return;
     setAdding(productId);
     const res = await fetch("/api/bag/add", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ productId }),
     });
-    if (res.ok) {
-      router.push(`/${locale}/bag`);
+    if (res.ok || res.status === 409) {
+      setAdded((prev) => new Set(prev).add(productId));
     }
     setAdding(null);
   }
@@ -126,30 +130,47 @@ export default function AddProductPage({
 
         <div className="space-y-2">
           {results.map((p) => (
-            <button key={p.id} onClick={() => add(p.id)}
-              disabled={adding !== null}
-              className="w-full text-left bg-cream p-4 hover:bg-stone/30 transition-colors disabled:opacity-50">
-              <div className="flex items-start gap-4">
-                {p.attributes?.hex && (
-                  <div className="w-10 h-10 flex-shrink-0 rounded-full mt-1"
-                    style={{ background: p.attributes.hex }} />
-                )}
-                <div className="flex-1">
-                  <div className="font-display text-base">{p.name}</div>
-                  <div className="font-display italic text-xs text-soft-ink">
-                    {p.brand}
-                    {p.shade_name && ` · ${p.shade_name}`}
-                    {p.shade_code && ` (${p.shade_code})`}
+            <div key={p.id} className="bg-cream hover:bg-stone/20 transition-colors">
+              <div className="flex items-center gap-3 p-4">
+                {/* Product info — links to product page */}
+                <Link
+                  href={`/${locale}/products/${p.id}`}
+                  className="flex items-center gap-3 flex-1 min-w-0"
+                >
+                  {p.attributes?.hex ? (
+                    <div
+                      className="w-10 h-10 flex-shrink-0 rounded-sm"
+                      style={{ background: p.attributes.hex }}
+                    />
+                  ) : (
+                    <div className="w-10 h-10 flex-shrink-0 rounded-sm bg-stone/30" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="font-display text-base truncate">{p.name}</div>
+                    <div className="font-display italic text-xs text-soft-ink truncate">
+                      {p.brand}
+                      {p.shade_name && ` · ${p.shade_name}`}
+                    </div>
+                    <div className="text-[9px] uppercase tracking-[0.28em] text-mute mt-0.5">
+                      {p.category.replace(/_/g, " ")}
+                    </div>
                   </div>
-                  <div className="text-[9px] uppercase tracking-[0.32em] text-mute mt-1">
-                    {p.category}
-                  </div>
-                </div>
-                <div className="text-[10px] uppercase tracking-wider text-accent self-center">
-                  {adding === p.id ? "Legger til…" : "+ Legg til"}
-                </div>
+                </Link>
+
+                {/* Add button */}
+                <button
+                  onClick={(e) => add(e, p.id)}
+                  disabled={adding !== null || added.has(p.id)}
+                  className={`flex-shrink-0 px-3 py-2 text-[10px] uppercase tracking-wider border transition-colors disabled:opacity-50 ${
+                    added.has(p.id)
+                      ? "border-stone/40 text-mute"
+                      : "border-ink text-ink hover:bg-ink hover:text-bone"
+                  }`}
+                >
+                  {adding === p.id ? "…" : added.has(p.id) ? "✓" : "+ Legg til"}
+                </button>
               </div>
-            </button>
+            </div>
           ))}
         </div>
 

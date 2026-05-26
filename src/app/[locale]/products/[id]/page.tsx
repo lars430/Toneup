@@ -63,7 +63,8 @@ export default async function ProductPage({
     userLocale,
     product.brand,
     product.name,
-    product.shade_name
+    product.shade_name,
+    product.purchase_urls ?? null
   );
 
   const attr = product.attributes ?? {};
@@ -149,7 +150,7 @@ export default async function ProductPage({
           <div className="space-y-2">
             {purchaseLinks.map((link) => (
               <a
-                key={link.name}
+                key={link.url}
                 href={link.url}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -157,14 +158,16 @@ export default async function ProductPage({
               >
                 <span className="font-display text-sm">{link.name}</span>
                 <span className="text-[10px] uppercase tracking-[0.28em] text-soft-ink">
-                  Søk →
+                  {link.verified ? "Se produkt →" : "Søk →"}
                 </span>
               </a>
             ))}
           </div>
-          <p className="text-[10px] text-mute mt-3 leading-relaxed">
-            Lenkene fører til søkesider hos forhandlerne. Tilgjengelighet og pris kan variere.
-          </p>
+          {purchaseLinks.some((l) => !l.verified) && (
+            <p className="text-[10px] text-mute mt-3 leading-relaxed">
+              Google Shopping filtrerer til forhandlere som faktisk selger produktet.
+            </p>
+          )}
         </div>
 
       </div>
