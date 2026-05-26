@@ -148,8 +148,11 @@ export default async function HomePage({
 
             {lastAnalysis ? (
               <div className="flex items-start justify-between gap-4 mb-4">
-                <div>
-                  <div className="font-display text-2xl leading-tight mb-1">
+                <Link
+                  href={`/${locale}/analyze/result/${lastAnalysis.id}`}
+                  className="flex-1 min-w-0 group"
+                >
+                  <div className="font-display text-2xl leading-tight mb-1 group-hover:opacity-70 transition-opacity">
                     {lastAnalysis.raw_result?.shadeLabel ??
                       lastAnalysis.summary?.depth ??
                       "Din palett"}
@@ -158,13 +161,21 @@ export default async function HomePage({
                     {undertoneLabel(lastAnalysis.raw_result?.undertone)} ·{" "}
                     {formatRelative(lastAnalysis.taken_at)}
                   </div>
-                </div>
-                <Link
-                  href={`/${locale}/analyze/calibrate`}
-                  className="text-[10px] uppercase tracking-[0.28em] text-soft-ink underline underline-offset-4 whitespace-nowrap mt-1"
-                >
-                  Ny analyse
                 </Link>
+                <div className="flex flex-col items-end gap-2 mt-1">
+                  <Link
+                    href={`/${locale}/analyze/result/${lastAnalysis.id}`}
+                    className="text-[10px] uppercase tracking-[0.28em] text-soft-ink underline underline-offset-4 whitespace-nowrap"
+                  >
+                    Se resultat
+                  </Link>
+                  <Link
+                    href={`/${locale}/analyze/calibrate`}
+                    className="text-[10px] uppercase tracking-[0.28em] text-mute whitespace-nowrap"
+                  >
+                    Ny analyse
+                  </Link>
+                </div>
               </div>
             ) : (
               <div className="mb-4">

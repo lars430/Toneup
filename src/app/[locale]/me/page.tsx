@@ -81,10 +81,10 @@ export default async function MePage({
         <section className="mb-8">
           <div className="editorial-eyebrow mb-4">Din reise</div>
           <div className="grid grid-cols-4 gap-2">
-            <StatTile value={analysisCount ?? 0} label="Analyser" />
+            <StatTile value={analysisCount ?? 0} label="Analyser" href={`/${locale}/me/analyses`} />
             <StatTile value={logCount ?? 0} label="Logger" />
-            <StatTile value={bagCount ?? 0} label="Produkter" />
-            <StatTile value={lovedCount ?? 0} label="Elsket" accent />
+            <StatTile value={bagCount ?? 0} label="Produkter" href={`/${locale}/bag`} />
+            <StatTile value={lovedCount ?? 0} label="Elsket" href={`/${locale}/bag?tab=loved`} accent />
           </div>
         </section>
 
@@ -264,23 +264,31 @@ function StatTile({
   value,
   label,
   accent = false,
+  href,
 }: {
   value: number;
   label: string;
   accent?: boolean;
+  href?: string;
 }) {
-  return (
-    <div className="bg-cream px-3 py-4 text-center">
-      <div
-        className={`font-display text-2xl ${accent && value > 0 ? "text-accent" : ""}`}
-      >
+  const inner = (
+    <>
+      <div className={`font-display text-2xl ${accent && value > 0 ? "text-accent" : ""}`}>
         {value}
       </div>
       <div className="text-[9px] uppercase tracking-wider text-mute mt-1 leading-tight">
         {label}
       </div>
-    </div>
+    </>
   );
+  if (href) {
+    return (
+      <Link href={href} className="bg-cream px-3 py-4 text-center block hover:opacity-70 transition-opacity">
+        {inner}
+      </Link>
+    );
+  }
+  return <div className="bg-cream px-3 py-4 text-center">{inner}</div>;
 }
 
 function ProfileRow({ label, value }: { label: string; value: string }) {
