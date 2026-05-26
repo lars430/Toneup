@@ -7,6 +7,8 @@ interface MentionedProduct {
   id: string;
   brand: string;
   name: string;
+  hex?: string | null;
+  shadeName?: string | null;
 }
 
 interface Turn {
@@ -14,6 +16,8 @@ interface Turn {
   a: string;
   mentionedProducts?: MentionedProduct[];
 }
+
+type AddState = "idle" | "loading" | "added" | "exists" | "limit" | "error";
 
 interface Props {
   locale: string;
@@ -66,69 +70,7 @@ function parseSections(text: string): Section[] {
   return result;
 }
 
-/** Render a section body, linking product mentions to product pages */
-function SectionBody({
-  text,
-  products,
-  locale,
-}: {
-  text: string;
-  products?: MentionedProduct[];
-  locale: string;
-}) {
-  if (!products?.length) return <>{text}</>;
-
-  const mentions: { start: number; end: number; product: MentionedProduct }[] = [];
-  const lowerText = text.toLowerCase();
-  for (const p of products) {
-    const needle = `${p.brand} ${p.name}`.toLowerCase();
-    let pos = 0;
-    while (pos < lowerText.length) {
-      const idx = lowerText.indexOf(needle, pos);
-      if (idx === -1) break;
-      mentions.push({ start: idx, end: idx + needle.length, product: p });
-      pos = idx + needle.length;
-    }
-  }
-  mentions.sort((a, b) => a.start - b.start);
-
-  const clean: typeof mentions = [];
-  let cursor = 0;
-  for (const m of mentions) {
-    if (m.start >= cursor) {
-      clean.push(m);
-      cursor = m.end;
-    }
-  }
-
-  const nodes: React.ReactNode[] = [];
-  let pos = 0;
-  for (const m of clean) {
-    if (m.start > pos) nodes.push(text.slice(pos, m.start));
-    nodes.push(
-      <Link
-        key={`${m.product.id}-${m.start}`}
-        href={`/${locale}/products/${m.product.id}`}
-        className="underline underline-offset-2 decoration-soft-ink/40 hover:decoration-ink transition-colors"
-      >
-        {text.slice(m.start, m.end)}
-      </Link>
-    );
-    pos = m.end;
-  }
-  if (pos < text.length) nodes.push(text.slice(pos));
-  return <>{nodes}</>;
-}
-
-function ModuleCard({
-  section,
-  products,
-  locale,
-}: {
-  section: Section;
-  products?: MentionedProduct[];
-  locale: string;
-}) {
+function ModuleCard({ section }: { section: Section }) {
   const styles: Record<Section["key"], string> = {
     answer: "bg-ink text-bone",
     need:   "bg-cream",
@@ -162,8 +104,106 @@ function ModuleCard({
           isInk ? "text-bone" : "text-soft-ink"
         }`}
       >
-        <SectionBody text={section.body} products={products} locale={locale} />
+        {section.body}
       </p>
+    </div>
+  );
+}
+
+function MentionedProductsRow({
+  products,
+  locale,
+}: {
+  products: MentionedProduct[];
+  locale: string;
+}) {
+  const [states, setStates] = useState<Record<string, AddState>>({});
+
+  async function addToBag(productId: string) {
+    setStates((s) => ({ ...s, [productId]: "loading" }));
+    try {
+      const res = await fetch("/api/bag/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productId }),
+      });
+      if (res.ok) {
+        setStates((s) => ({ ...s, [productId]: "added" }));
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      if (data?.error === "already_in_bag") {
+        setStates((s) => ({ ...s, [productId]: "exists" }));
+      } else if (data?.error === "bag_limit_reached") {
+        setStates((s) => ({ ...s, [productId]: "limit" }));
+      } else {
+        setStates((s) => ({ ...s, [productId]: "error" }));
+      }
+    } catch {
+      setStates((s) => ({ ...s, [productId]: "error" }));
+    }
+  }
+
+  if (!products?.length) return null;
+
+  return (
+    <div className="mt-3 space-y-2">
+      <div className="text-[10px] uppercase tracking-[0.32em] text-mute">
+        Nevnte produkter
+      </div>
+      <div className="space-y-2">
+        {products.map((p) => {
+          const state = states[p.id] ?? "idle";
+          return (
+            <div
+              key={p.id}
+              className="flex items-center gap-3 bg-cream px-3 py-3"
+            >
+              <Link
+                href={`/${locale}/products/${p.id}`}
+                className="flex items-center gap-3 flex-1 min-w-0 group"
+              >
+                <div
+                  className="w-9 h-9 flex-shrink-0 rounded-sm border border-stone/30"
+                  style={{ background: p.hex ?? "#D9CFC1" }}
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="font-display text-sm truncate group-hover:opacity-70 transition-opacity">
+                    {p.name}
+                  </div>
+                  <div className="font-display italic text-[11px] text-soft-ink truncate">
+                    {p.brand}
+                    {p.shadeName && ` · ${p.shadeName}`}
+                  </div>
+                </div>
+              </Link>
+              <button
+                onClick={() => addToBag(p.id)}
+                disabled={
+                  state === "loading" ||
+                  state === "added" ||
+                  state === "exists" ||
+                  state === "limit"
+                }
+                className={`flex-shrink-0 px-3 py-2 text-[10px] uppercase tracking-[0.24em] border transition-colors ${
+                  state === "added" || state === "exists"
+                    ? "border-stone/40 text-mute"
+                    : state === "limit" || state === "error"
+                    ? "border-accent/40 text-accent"
+                    : "border-ink text-ink hover:bg-ink hover:text-bone"
+                }`}
+              >
+                {state === "loading" && "…"}
+                {state === "idle" && "+ Pung"}
+                {state === "added" && "I pungen"}
+                {state === "exists" && "Allerede"}
+                {state === "limit" && "Full"}
+                {state === "error" && "Feilet"}
+              </button>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -325,11 +365,16 @@ export default function AdvisorUI({
                     <ModuleCard
                       key={`${i}-${j}-${s.key}`}
                       section={s}
-                      products={turn.mentionedProducts}
-                      locale={locale}
                     />
                   ))}
                 </div>
+                {/* Mentioned products with link + add to bag */}
+                {turn.mentionedProducts && turn.mentionedProducts.length > 0 && (
+                  <MentionedProductsRow
+                    products={turn.mentionedProducts}
+                    locale={locale}
+                  />
+                )}
               </div>
             );
           })}

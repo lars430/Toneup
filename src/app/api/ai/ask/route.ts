@@ -76,7 +76,7 @@ export async function POST(req: Request) {
   // Always fetch product catalog so AI only recommends what's in the app
   const { data: catalog } = await supabase
     .from("products")
-    .select("id, brand, name, category, shade_name")
+    .select("id, brand, name, category, shade_name, attributes")
     .order("category")
     .order("brand")
     .order("name");
@@ -259,18 +259,39 @@ export async function POST(req: Request) {
       (response.usage.input_tokens * 3 + response.usage.output_tokens * 15) /
       1_000_000;
 
-    // Detect which catalog products are mentioned so the client can link them
-    type MentionedProduct = { id: string; brand: string; name: string };
+    // Detect which catalog products are mentioned so the client can link them.
+    // Normalize both sides so separators like " – ", " — ", ": ", " - " inside
+    // "Brand – Name" still match against the catalog "Brand Name".
+    type MentionedProduct = {
+      id: string;
+      brand: string;
+      name: string;
+      hex?: string | null;
+      shadeName?: string | null;
+    };
     const mentionedProducts: MentionedProduct[] = [];
     if (catalog?.length) {
-      const answerLower = answer.toLowerCase();
+      const normalize = (s: string) =>
+        s
+          .toLowerCase()
+          .replace(/[–—:\-]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+      const normalizedAnswer = normalize(answer);
       const seen = new Set<string>();
       for (const p of catalog) {
         const key = `${p.brand}||${p.name}`;
         if (seen.has(key)) continue;
-        if (answerLower.includes(`${p.brand} ${p.name}`.toLowerCase())) {
+        const needle = normalize(`${p.brand} ${p.name}`);
+        if (normalizedAnswer.includes(needle)) {
           seen.add(key);
-          mentionedProducts.push({ id: p.id, brand: p.brand, name: p.name });
+          mentionedProducts.push({
+            id: p.id,
+            brand: p.brand,
+            name: p.name,
+            hex: (p as any).attributes?.hex ?? null,
+            shadeName: p.shade_name ?? null,
+          });
         }
       }
     }
