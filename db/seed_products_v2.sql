@@ -265,7 +265,7 @@ insert into products (id, brand, name, category, shade_name, shade_code, price_t
 ('f9000002-0000-4000-a000-000000000002', 'Dermalogica', 'Daily Microfoliant', 'exfoliant', NULL, NULL, 'premium', '{"skin_type":["all"],"concern":["texture","brightening"]}'::jsonb, false, 'US'),
 ('f9000002-0000-4000-a000-000000000003', 'Dermalogica', 'Active Moist', 'moisturizer', NULL, NULL, 'premium', '{"skin_type":["oily","normal"],"concern":["hydration"]}'::jsonb, false, 'US'),
 ('f9000002-0000-4000-a000-000000000004', 'Dermalogica', 'Age Smart Skin Resurfacing Cleanser', 'cleanser', NULL, NULL, 'premium', '{"skin_type":["mature"],"concern":["anti-aging","texture"]}'::jsonb, false, 'US'),
-('f9000002-0000-4000-a000-000000000005', 'Dermalogica', 'Phyto Replenish Oil', 'oil', NULL, NULL, 'premium', '{"skin_type":["dry","mature"],"concern":["nourishing"]}'::jsonb, false, 'US'),
+('f9000002-0000-4000-a000-000000000005', 'Dermalogica', 'Phyto Replenish Oil', 'serum', NULL, NULL, 'premium', '{"skin_type":["dry","mature"],"concern":["nourishing","face oil"]}'::jsonb, false, 'US'),
 ('f9000002-0000-4000-a000-000000000006', 'Dermalogica', 'BioLumin-C Serum', 'serum', NULL, NULL, 'premium', '{"skin_type":["all"],"concern":["brightening"],"key_ingredient":"vitamin c"}'::jsonb, false, 'US'),
 ('f9000002-0000-4000-a000-000000000007', 'Dermalogica', 'Multivitamin Power Firm Eye Cream', 'eye_cream', NULL, NULL, 'premium', '{"concern":["anti-aging","firming"]}'::jsonb, false, 'US'),
 ('f9000002-0000-4000-a000-000000000008', 'Dermalogica', 'Pure Light SPF50', 'spf', NULL, NULL, 'premium', '{"spf":50,"concern":["brightening","protection"]}'::jsonb, false, 'US'),

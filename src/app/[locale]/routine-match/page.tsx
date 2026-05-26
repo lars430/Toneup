@@ -11,7 +11,6 @@ const SKINCARE_CATEGORIES: Array<{ key: string; label: string; sub: string }> = 
   { key: "serum",      label: "Serum",         sub: "Steg 3 · Den aktive jobben" },
   { key: "eye_cream",  label: "Øyekrem",       sub: "Steg 4 · Forsiktig dabbing" },
   { key: "moisturizer",label: "Fuktighet",     sub: "Steg 5 · Låser inn" },
-  { key: "oil",        label: "Olje",          sub: "Sluttsteg · Næring og pleie" },
   { key: "spf",        label: "SPF",           sub: "Morgen · Solbeskyttelse" },
   { key: "mask",       label: "Maske",         sub: "1-2 ganger ukentlig" },
   { key: "exfoliant",  label: "Eksfoliering",  sub: "Maks 2-3 ganger per uke" },
