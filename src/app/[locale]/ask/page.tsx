@@ -1,163 +1,214 @@
-"use client";
-
-import { useState } from "react";
-import Link from "next/link";
+import { redirect } from "next/navigation";
+import { createServer } from "@/lib/supabase";
+import { getUserSubscription, isProTier } from "@/lib/subscriptions";
+import AdvisorUI from "./_components/AdvisorUI";
+import BottomNav from "@/components/BottomNav";
 
 /**
- * AI-rådgiver side
- *
- * Bruker kan stille spørsmål om produkter, ingredienser, rutiner.
- * Pro-funksjon. Vi sender ikke huddata uten samtykke.
+ * Server component — fetches user context so the AI advisor feels personal.
+ * Passes a pre-built context summary and personalized questions to the
+ * client-side AdvisorUI component.
  */
-
-export default function AskPage({
+export default async function AskPage({
   params: { locale },
 }: {
   params: { locale: string };
 }) {
-  const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [history, setHistory] = useState<Array<{ q: string; a: string }>>([]);
+  const supabase = createServer();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect(`/${locale}/sign-in`);
 
-  async function ask() {
-    if (!question.trim()) return;
-    setLoading(true);
-    setError("");
-    setAnswer("");
+  const { data: profile } = await supabase
+    .from("user_profiles")
+    .select("*")
+    .eq("user_id", user.id)
+    .single();
 
-    const res = await fetch("/api/ai/ask", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, includeProfile: true }),
-    });
+  const sub = await getUserSubscription(supabase, user.id);
+  const isPro = isProTier(sub);
 
-    if (res.status === 402) {
-      setError("upgrade_required");
-      setLoading(false);
-      return;
-    }
-    if (res.status === 429) {
-      setError("quota_exceeded");
-      setLoading(false);
-      return;
-    }
+  // Last skin log
+  const { data: lastLog } = await supabase
+    .from("skin_logs")
+    .select("feel_label, hydration, redness, glow, sensitivity, tags, logged_at")
+    .eq("user_id", user.id)
+    .order("logged_at", { ascending: false })
+    .limit(1)
+    .single();
 
-    const data = await res.json();
-    if (data.answer) {
-      setAnswer(data.answer);
-      setHistory((h) => [{ q: question, a: data.answer }, ...h]);
-      setQuestion("");
-    } else {
-      setError("error");
-    }
-    setLoading(false);
-  }
+  // Loved products (up to 5)
+  const { data: lovedItems } = await supabase
+    .from("makeup_bag_items")
+    .select("shade_name, shade_code, products(name, brand, category)")
+    .eq("user_id", user.id)
+    .eq("loved", true)
+    .limit(5);
+
+  // Last analysis
+  const { data: lastAnalysis } = await supabase
+    .from("skin_analyses")
+    .select("raw_result, summary, taken_at")
+    .eq("user_id", user.id)
+    .order("taken_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  // Build context summary shown to the user
+  const contextParts: string[] = [];
+  if (profile?.skin_type) contextParts.push(skinTypeLabel(profile.skin_type));
+  if (profile?.skin_goals?.length)
+    contextParts.push(profile.skin_goals.slice(0, 3).map(goalLabel).join(", "));
+  if (profile?.preferences?.budget)
+    contextParts.push(budgetLabel(profile.preferences.budget));
+  if (lastLog)
+    contextParts.push(`Sist logget: ${feelLabel(lastLog.feel_label)}`);
+  if (lastAnalysis?.raw_result?.undertone)
+    contextParts.push(undertoneLabel(lastAnalysis.raw_result.undertone));
+  if (lovedItems?.length)
+    contextParts.push(`${lovedItems.length} elskede produkter`);
+
+  const contextSummary = contextParts.length ? contextParts.join(" · ") : null;
+
+  // Personalized suggested questions based on profile + season
+  const personalQuestions = buildPersonalQuestions(
+    profile,
+    lastLog,
+    lastAnalysis,
+    lovedItems ?? [],
+    computeSeason()
+  );
 
   return (
-    <main className="min-h-screen bg-bone pb-32">
-      <div className="max-w-md mx-auto px-7 py-10">
-        <div className="text-center mb-10">
-          <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-3">
-            Toneup rådgiver
-          </div>
-          <h1 className="font-display text-4xl tracking-wide2 mb-2">
-            Spør om hva som helst
-          </h1>
-          <p className="font-display italic text-soft-ink text-base mt-3 leading-relaxed">
-            Produkter, ingredienser, ritualer.<br />
-            Vi svarer med kunnskap, ikke salgsspråk.
-          </p>
-        </div>
-
-        {error === "upgrade_required" && (
-          <div className="bg-cream p-6 text-center mb-7">
-            <p className="font-display text-base mb-3">
-              AI-rådgiveren er en Pro-funksjon.
-            </p>
-            <Link href={`/${locale}/upgrade`}
-              className="inline-block bg-ink text-bone px-6 py-3 text-[11px] uppercase tracking-[0.32em]">
-              Se Pro
-            </Link>
-          </div>
-        )}
-
-        {error === "quota_exceeded" && (
-          <div className="bg-cream p-6 text-center mb-7">
-            <p className="font-display text-base">
-              Du har nådd månedens grense for spørsmål.
-            </p>
-          </div>
-        )}
-
-        {/* Suggested questions */}
-        {history.length === 0 && !answer && (
-          <div className="mb-7">
-            <div className="editorial-eyebrow mb-3">Foreslåtte spørsmål</div>
-            <div className="space-y-2">
-              {[
-                "Hvordan bygger jeg en god kveldsrutine for tørr hud?",
-                "Er retinol trygt under graviditet?",
-                "Hva er forskjellen på AHA og BHA?",
-                "Kan jeg bruke vitamin C og niacinamid samme dag?",
-              ].map((q) => (
-                <button key={q} onClick={() => setQuestion(q)}
-                  className="block w-full text-left bg-cream px-4 py-3 font-display text-sm text-soft-ink hover:bg-stone/30 transition-colors">
-                  {q}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Question input */}
-        <div className="mb-7">
-          <textarea
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            placeholder="Ditt spørsmål…"
-            rows={3}
-            className="w-full bg-cream border-none p-4 font-display text-base focus:outline-none focus:ring-1 focus:ring-ink resize-none"
-          />
-          <button onClick={ask} disabled={loading || !question.trim()}
-            className="btn-primary mt-3 disabled:opacity-40">
-            {loading ? "Tenker…" : "Spør"}
-          </button>
-        </div>
-
-        {/* Current answer */}
-        {answer && (
-          <div className="bg-cream p-6 mb-7">
-            <div className="editorial-eyebrow mb-3">Svar</div>
-            <div className="font-display text-base leading-relaxed whitespace-pre-wrap">
-              {answer}
-            </div>
-          </div>
-        )}
-
-        {/* History */}
-        {history.length > 1 && (
-          <div className="mt-12">
-            <div className="editorial-eyebrow mb-5">Tidligere</div>
-            {history.slice(1).map((h, i) => (
-              <details key={i} className="mb-3 border-b border-stone/30 pb-3">
-                <summary className="font-display text-base cursor-pointer">
-                  {h.q}
-                </summary>
-                <p className="font-display text-sm text-soft-ink mt-3 leading-relaxed whitespace-pre-wrap">
-                  {h.a}
-                </p>
-              </details>
-            ))}
-          </div>
-        )}
-
-        <p className="text-[10px] tracking-wider text-mute text-center mt-12 leading-relaxed">
-          Toneups rådgiver er en kosmetisk veileder, ikke medisinsk profesjon.<br />
-          Ved hudtilstander, kontakt hudlege.
-        </p>
-      </div>
+    <main className="min-h-dvh bg-bone pb-28">
+      <AdvisorUI
+        locale={locale}
+        isPro={isPro}
+        contextSummary={contextSummary}
+        personalQuestions={personalQuestions}
+      />
+      <BottomNav locale={locale} />
     </main>
   );
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function computeSeason(): "spring" | "summer" | "autumn" | "winter" {
+  const m = new Date().getMonth();
+  if (m >= 2 && m <= 4) return "spring";
+  if (m >= 5 && m <= 7) return "summer";
+  if (m >= 8 && m <= 10) return "autumn";
+  return "winter";
+}
+
+function buildPersonalQuestions(
+  profile: any,
+  lastLog: any,
+  lastAnalysis: any,
+  lovedItems: any[],
+  season: string
+): string[] {
+  const questions: string[] = [];
+
+  // Foundation shade matching
+  if (lastAnalysis?.raw_result?.undertone) {
+    questions.push(
+      `Hvilken foundationtone passer best for meg nå basert på undertonen min?`
+    );
+  }
+
+  // Skin-type specific
+  if (profile?.skin_type === "dry") {
+    questions.push("Hvilke fuktighetsprodukter passer best for tørr hud om " + seasonLabel(season) + "?");
+  } else if (profile?.skin_type === "oily") {
+    questions.push("Hvordan kontrollerer jeg glans uten å tørke ut huden?");
+  } else if (profile?.skin_type === "sensitive") {
+    questions.push("Hvilke ingredienser bør jeg unngå for sensitiv hud?");
+  }
+
+  // Season-specific
+  const seasonQ: Record<string, string> = {
+    spring: "Hva bør jeg endre i rutinen nå som sesongen skifter til vår?",
+    summer: "Hvilke lette baseprodukter fungerer best i sommer?",
+    autumn: "Hvordan gjenoppbygger jeg hudbarrieren etter sommeren?",
+    winter: "Hvilke produkter beskytter mot tørrhet og kulde om vinteren?",
+  };
+  questions.push(seasonQ[season]);
+
+  // Recent log-based
+  if (lastLog?.redness >= 4) {
+    questions.push("Hva kan jeg gjøre for å dempe rødhet i huden?");
+  } else if (lastLog?.hydration <= 2) {
+    questions.push("Huden føles veldig tørr — hva er de beste ingrediensene for dyp fukt?");
+  }
+
+  // Loved product alternatives
+  const foundationLoved = lovedItems.find(
+    (i: any) => i.products?.category === "foundation"
+  );
+  if (foundationLoved) {
+    questions.push(
+      `Finnes det et rimeligere alternativ til ${foundationLoved.products?.name}?`
+    );
+  }
+
+  // Life phase
+  if (profile?.life_phase === "pregnancy") {
+    questions.push("Hvilke hudpleieingredienser er trygge under graviditet?");
+  } else if (profile?.life_phase === "menstrual_cycle") {
+    questions.push("Hvordan tilpasser jeg rutinen til ulike faser i syklusen?");
+  }
+
+  // Fallback generic
+  if (questions.length < 4) {
+    questions.push("Hva er forskjellen på AHA og BHA, og hva passer best for meg?");
+    questions.push("Kan jeg bruke vitamin C og retinol i samme rutine?");
+  }
+
+  return questions.slice(0, 5);
+}
+
+function skinTypeLabel(key: string): string {
+  const m: Record<string, string> = {
+    dry: "Tørr hud", oily: "Fet hud", combination: "Kombinert hud",
+    normal: "Normal hud", sensitive: "Sensitiv hud",
+  };
+  return m[key] ?? key;
+}
+
+function goalLabel(key: string): string {
+  const m: Record<string, string> = {
+    less_dryness: "Mindre tørrhet", glow: "Glød", less_acne: "Mindre akne",
+    even_tone: "Jevnere hudtone", less_sensitivity: "Mindre sensitivitet",
+    anti_aging: "Anti-aging", pore_minimizing: "Porer",
+  };
+  return m[key] ?? key;
+}
+
+function budgetLabel(key: string): string {
+  const m: Record<string, string> = {
+    budget: "Rimelig budsjett", mid: "Mellompris", premium: "Premium", luxury: "Luksus",
+  };
+  return m[key] ?? key;
+}
+
+function feelLabel(key: string): string {
+  const m: Record<string, string> = {
+    radiant: "Strålende", balanced: "Balansert", tired: "Trett",
+    tight: "Stram", reactive: "Reaktiv", oily: "Glinsende",
+  };
+  return m[key] ?? key;
+}
+
+function undertoneLabel(key: string): string {
+  const m: Record<string, string> = {
+    warm: "Varm undertone", cool: "Kald undertone", neutral: "Nøytral undertone",
+  };
+  return m[key] ?? key;
+}
+
+function seasonLabel(s: string): string {
+  return { spring: "våren", summer: "sommeren", autumn: "høsten", winter: "vinteren" }[s] ?? s;
 }
