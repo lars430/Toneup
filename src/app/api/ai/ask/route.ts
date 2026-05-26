@@ -22,7 +22,8 @@ Regler:
 - Du selger ikke produkter — du forklarer og anbefaler nøytralt.
 - Bruk alltid brukerens historikk og kontekst aktivt i svaret.
 - Dersom brukeren spør om foundationtone eller nyanser, bruk undertone og dybde fra analysen.
-- Dersom brukeren spør om produktalternativer, ta hensyn til budsjett.`;
+- Dersom brukeren spør om produktalternativer, ta hensyn til budsjett.
+- Du kan KUN anbefale produkter som finnes i Toneups produktkatalog (se TILGJENGELIGE PRODUKTER i konteksten). Henvis aldri til produkter utenfor denne listen.`;
 
 export async function POST(req: Request) {
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -46,6 +47,14 @@ export async function POST(req: Request) {
 
   // Build rich personal context
   let contextBlock = "";
+
+  // Always fetch product catalog so AI only recommends what's in the app
+  const { data: catalog } = await supabase
+    .from("products")
+    .select("id, brand, name, category, shade_name")
+    .order("category")
+    .order("brand")
+    .order("name");
 
   if (includeProfile) {
     // Profile
@@ -151,8 +160,27 @@ export async function POST(req: Request) {
       return "vinter";
     })();
     lines.push(`Nåværende sesong: ${currentSeason}`);
-    lines.push("=== SLUTT KONTEKST ===");
 
+    if (catalog?.length) {
+      const grouped: Record<string, Record<string, string[]>> = {};
+      for (const p of catalog) {
+        const cat = p.category as string;
+        const key = `${p.brand} – ${p.name}`;
+        if (!grouped[cat]) grouped[cat] = {};
+        if (!grouped[cat][key]) grouped[cat][key] = [];
+        if (p.shade_name) grouped[cat][key].push(p.shade_name);
+      }
+      const catLines = Object.entries(grouped).map(([cat, products]) => {
+        const prodLines = Object.entries(products).map(([prod, shades]) =>
+          shades.length ? `${prod} (${shades.join(", ")})` : prod
+        );
+        return `${cat}: ${prodLines.join(" | ")}`;
+      });
+      lines.push("\n=== TILGJENGELIGE PRODUKTER I TONEUP ===");
+      lines.push(catLines.join("\n"));
+    }
+
+    lines.push("=== SLUTT KONTEKST ===");
     contextBlock = "\n\n" + lines.join("\n");
   }
 
@@ -206,6 +234,22 @@ export async function POST(req: Request) {
       (response.usage.input_tokens * 3 + response.usage.output_tokens * 15) /
       1_000_000;
 
+    // Detect which catalog products are mentioned so the client can link them
+    type MentionedProduct = { id: string; brand: string; name: string };
+    const mentionedProducts: MentionedProduct[] = [];
+    if (catalog?.length) {
+      const answerLower = answer.toLowerCase();
+      const seen = new Set<string>();
+      for (const p of catalog) {
+        const key = `${p.brand}||${p.name}`;
+        if (seen.has(key)) continue;
+        if (answerLower.includes(`${p.brand} ${p.name}`.toLowerCase())) {
+          seen.add(key);
+          mentionedProducts.push({ id: p.id, brand: p.brand, name: p.name });
+        }
+      }
+    }
+
     // Best-effort logging — don't fail the response if table doesn't exist
     try {
       await supabase.from("ai_questions").insert({
@@ -221,7 +265,7 @@ export async function POST(req: Request) {
       // non-fatal
     }
 
-    return NextResponse.json({ answer });
+    return NextResponse.json({ answer, mentionedProducts });
   } catch (err: any) {
     console.error("[ai/ask] Anthropic error:", err?.message);
     return NextResponse.json(

@@ -3,9 +3,16 @@
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 
+interface MentionedProduct {
+  id: string;
+  brand: string;
+  name: string;
+}
+
 interface Turn {
   q: string;
   a: string;
+  mentionedProducts?: MentionedProduct[];
 }
 
 interface Props {
@@ -13,6 +20,68 @@ interface Props {
   isPro: boolean;
   contextSummary: string | null;
   personalQuestions: string[];
+}
+
+/** Splits answer text and wraps catalog product mentions in links */
+function AnswerText({
+  text,
+  products,
+  locale,
+}: {
+  text: string;
+  products?: MentionedProduct[];
+  locale: string;
+}) {
+  if (!products?.length) {
+    return <>{text}</>;
+  }
+
+  // Collect all (start, end, product) mentions, sorted by position
+  const mentions: { start: number; end: number; product: MentionedProduct }[] = [];
+  const lowerText = text.toLowerCase();
+
+  for (const p of products) {
+    const needle = `${p.brand} ${p.name}`.toLowerCase();
+    let pos = 0;
+    while (pos < lowerText.length) {
+      const idx = lowerText.indexOf(needle, pos);
+      if (idx === -1) break;
+      mentions.push({ start: idx, end: idx + needle.length, product: p });
+      pos = idx + needle.length;
+    }
+  }
+
+  mentions.sort((a, b) => a.start - b.start);
+
+  // Remove overlapping mentions (keep first)
+  const clean: typeof mentions = [];
+  let cursor = 0;
+  for (const m of mentions) {
+    if (m.start >= cursor) {
+      clean.push(m);
+      cursor = m.end;
+    }
+  }
+
+  // Build React nodes
+  const nodes: React.ReactNode[] = [];
+  let pos = 0;
+  for (const m of clean) {
+    if (m.start > pos) nodes.push(text.slice(pos, m.start));
+    nodes.push(
+      <Link
+        key={`${m.product.id}-${m.start}`}
+        href={`/${locale}/products/${m.product.id}`}
+        className="underline underline-offset-2 decoration-soft-ink/40 hover:decoration-ink transition-colors"
+      >
+        {text.slice(m.start, m.end)}
+      </Link>
+    );
+    pos = m.end;
+  }
+  if (pos < text.length) nodes.push(text.slice(pos));
+
+  return <>{nodes}</>;
 }
 
 export default function AdvisorUI({
@@ -44,7 +113,6 @@ export default function AdvisorUI({
       body: JSON.stringify({
         question: q,
         includeProfile: true,
-        // Send oldest-first so API can reconstruct the turn sequence
         conversationHistory: thread,
       }),
     });
@@ -54,7 +122,10 @@ export default function AdvisorUI({
 
     const data = await res.json();
     if (data.answer) {
-      setThread((prev) => [...prev, { q, a: data.answer }]);
+      setThread((prev) => [
+        ...prev,
+        { q, a: data.answer, mentionedProducts: data.mentionedProducts ?? [] },
+      ]);
     } else {
       setError("error");
     }
@@ -169,7 +240,11 @@ export default function AdvisorUI({
                   Rådgiveren
                 </div>
                 <p className="font-display text-sm leading-relaxed whitespace-pre-wrap">
-                  {turn.a}
+                  <AnswerText
+                    text={turn.a}
+                    products={turn.mentionedProducts}
+                    locale={locale}
+                  />
                 </p>
               </div>
             </div>

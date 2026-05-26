@@ -30,7 +30,7 @@ export default async function BagPage({
     .from("makeup_bag_items")
     .select("*, products(*)")
     .eq("user_id", user.id)
-    .order("added_at", { ascending: false });
+    .order("created_at", { ascending: false });
 
   const items = allItems ?? [];
 
@@ -285,9 +285,12 @@ function ProductCard({
   locale: string;
   showLoved?: boolean;
 }) {
+  const href = item.products?.id
+    ? `/${locale}/products/${item.products.id}`
+    : `/${locale}/bag`;
   return (
     <Link
-      href={`/${locale}/bag/${item.id}`}
+      href={href}
       className="block bg-cream px-4 py-4 hover:bg-stone/20 transition-colors"
     >
       <div className="flex items-center gap-4">
@@ -322,9 +325,12 @@ function ProductCard({
 }
 
 function FoundationCard({ item, locale }: { item: any; locale: string }) {
+  const href = item.products?.id
+    ? `/${locale}/products/${item.products.id}`
+    : `/${locale}/bag`;
   return (
     <Link
-      href={`/${locale}/bag/${item.id}`}
+      href={href}
       className="block bg-cream px-4 py-4 hover:bg-stone/20 transition-colors"
     >
       <div className="flex items-center gap-4">
