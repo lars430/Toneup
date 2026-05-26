@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createServer } from "@/lib/supabase";
 import BottomNav from "@/components/BottomNav";
 import { buildSignal, scoreBagItem, type FitResult } from "@/lib/fit-now";
+import RemoveBagItem from "./_components/RemoveBagItem";
 
 type Tab = "all" | "foundation" | "loved" | "wishlist";
 
@@ -391,11 +392,8 @@ function ProductCard({
     ? `/${locale}/products/${item.products.id}`
     : `/${locale}/bag`;
   return (
-    <Link
-      href={href}
-      className="block bg-cream px-4 py-4 hover:bg-stone/30 transition-colors"
-    >
-      <div className="flex items-center gap-4">
+    <div className="bg-cream px-4 py-4 flex items-center gap-4 hover:bg-stone/30 transition-colors">
+      <Link href={href} className="flex items-center gap-4 flex-1 min-w-0">
         {item.shade_code || item.products?.attributes?.hex ? (
           <div
             className="w-11 h-11 flex-shrink-0 rounded-sm border border-stone/30"
@@ -421,11 +419,12 @@ function ProductCard({
           )}
           <FitTag fit={fit} />
         </div>
-        {showLoved && item.loved && (
-          <span className="text-accent text-sm flex-shrink-0">♥</span>
-        )}
-      </div>
-    </Link>
+      </Link>
+      {showLoved && item.loved && (
+        <span className="text-accent text-sm flex-shrink-0">♥</span>
+      )}
+      <RemoveBagItem itemId={item.id} />
+    </div>
   );
 }
 
@@ -444,11 +443,8 @@ function FoundationCard({
   const bg =
     item.shade_code ?? item.products?.attributes?.hex ?? "#D9CFC1";
   return (
-    <Link
-      href={href}
-      className="block bg-cream px-4 py-4 hover:bg-stone/30 transition-colors"
-    >
-      <div className="flex items-center gap-4">
+    <div className="bg-cream px-4 py-4 flex items-center gap-4 hover:bg-stone/30 transition-colors">
+      <Link href={href} className="flex items-center gap-4 flex-1 min-w-0">
         <div
           className="w-11 h-11 flex-shrink-0 rounded-sm border border-stone/30"
           style={{ background: bg }}
@@ -465,11 +461,12 @@ function FoundationCard({
           </div>
           <FitTag fit={fit} />
         </div>
-        <div className="flex flex-col items-end gap-1 flex-shrink-0">
-          {item.loved && <span className="text-accent text-sm">♥</span>}
-        </div>
-      </div>
-    </Link>
+      </Link>
+      {item.loved && (
+        <span className="text-accent text-sm flex-shrink-0">♥</span>
+      )}
+      <RemoveBagItem itemId={item.id} />
+    </div>
   );
 }
 
