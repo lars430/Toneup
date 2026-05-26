@@ -48,6 +48,16 @@ Andre produkter fra Toneups katalog som er aktuelle. Skriv "Brand Productname". 
 [NOTAT]
 Eventuell kort presisering, advarsel eller faglig nyanse. Hopp over hvis ikke nødvendig.
 
+[HANDLINGER]
+Dersom brukeren ber deg utføre noe konkret — legge produkter i pungen eller ønskelisten, eller logge huden — inkluder denne modulen sist. Du foreslår; brukeren bekrefter selv. Hopp over modulen hvis ingen handling er bedt om.
+
+Format: gyldig JSON, ett objekt med array "actions". Mulige typer:
+- {"type":"legg_i_pung","label":"Merke Produktnavn"}
+- {"type":"flytt_til_onskeliste","label":"Merke Produktnavn"}
+- {"type":"logg_hud","feel":"radiant|balanced|tired|tight|reactive|oily","metrics":{"hydration":1-5,"redness":1-5,"glow":1-5,"sensitivity":1-5,"breakouts":1-5},"tags":["..."]}
+
+For produktreferanser: skriv "label" eksakt som "Merke Produktnavn" fra katalogen. Serveren matcher selv mot produktdatabasen.
+
 INGEN tekst utenfor modulene. Start med [SVAR].`;
 
 export async function POST(req: Request) {

@@ -35,18 +35,29 @@ type Section =
   | { key: "alts";     label: "Gode alternativer"; body: string }
   | { key: "note";     label: "Notat";             body: string };
 
-const MARKERS: Array<[Section["key"], Section["label"], RegExp]> = [
-  ["answer", "Svar",              /\[SVAR\]/i],
-  ["need",   "Huden trenger nå",  /\[HUDEN TRENGER\]/i],
-  ["avoid",  "Unngå i dag",       /\[UNNGÅ I DAG\]/i],
-  ["yours",  "Fra din pung",      /\[FRA DIN PUNG\]/i],
-  ["alts",   "Gode alternativer", /\[GODE ALTERNATIVER\]/i],
-  ["note",   "Notat",             /\[NOTAT\]/i],
+type ProposedAction =
+  | { type: "legg_i_pung"; label: string }
+  | { type: "flytt_til_onskeliste"; label: string }
+  | {
+      type: "logg_hud";
+      feel?: string;
+      metrics?: Record<string, number>;
+      tags?: string[];
+      freeText?: string;
+    };
+
+const MARKERS: Array<[Section["key"] | "actions", string, RegExp]> = [
+  ["answer",  "Svar",              /\[SVAR\]/i],
+  ["need",    "Huden trenger nå",  /\[HUDEN TRENGER\]/i],
+  ["avoid",   "Unngå i dag",       /\[UNNGÅ I DAG\]/i],
+  ["yours",   "Fra din pung",      /\[FRA DIN PUNG\]/i],
+  ["alts",    "Gode alternativer", /\[GODE ALTERNATIVER\]/i],
+  ["note",    "Notat",             /\[NOTAT\]/i],
+  ["actions", "Handlinger",        /\[HANDLINGER\]/i],
 ];
 
-function parseSections(text: string): Section[] {
-  // Find each marker position
-  const hits: Array<{ key: Section["key"]; label: Section["label"]; pos: number; matchLen: number }> = [];
+function parseAnswer(text: string): { sections: Section[]; actions: ProposedAction[] } {
+  const hits: Array<{ key: typeof MARKERS[number][0]; label: string; pos: number; matchLen: number }> = [];
   for (const [key, label, re] of MARKERS) {
     const m = text.match(re);
     if (m && m.index != null) {
@@ -54,20 +65,52 @@ function parseSections(text: string): Section[] {
     }
   }
   if (hits.length === 0) {
-    // No markers found — treat the whole thing as answer
-    return [{ key: "answer", label: "Svar", body: text.trim() } as Section];
+    return {
+      sections: [{ key: "answer", label: "Svar", body: text.trim() } as Section],
+      actions: [],
+    };
   }
   hits.sort((a, b) => a.pos - b.pos);
-  const result: Section[] = [];
+
+  const sections: Section[] = [];
+  let actions: ProposedAction[] = [];
+
   for (let i = 0; i < hits.length; i++) {
     const cur = hits[i];
     const next = hits[i + 1];
     const start = cur.pos + cur.matchLen;
     const end = next ? next.pos : text.length;
     const body = text.slice(start, end).trim();
-    if (body) result.push({ key: cur.key, label: cur.label, body } as Section);
+    if (!body) continue;
+
+    if (cur.key === "actions") {
+      actions = extractActions(body);
+    } else {
+      sections.push({ key: cur.key, label: cur.label, body } as Section);
+    }
   }
-  return result;
+  return { sections, actions };
+}
+
+function extractActions(body: string): ProposedAction[] {
+  // Strip code fences if present, find the first {...} JSON object.
+  const cleaned = body
+    .replace(/```json/gi, "")
+    .replace(/```/g, "")
+    .trim();
+  const first = cleaned.indexOf("{");
+  const last = cleaned.lastIndexOf("}");
+  if (first === -1 || last === -1 || last <= first) return [];
+  const candidate = cleaned.slice(first, last + 1);
+  try {
+    const parsed = JSON.parse(candidate);
+    if (Array.isArray(parsed?.actions)) {
+      return parsed.actions.filter((a: any) => a && typeof a.type === "string");
+    }
+  } catch {
+    // ignore — malformed JSON yields no actions
+  }
+  return [];
 }
 
 function ModuleCard({ section }: { section: Section }) {
@@ -108,6 +151,115 @@ function ModuleCard({ section }: { section: Section }) {
       </p>
     </div>
   );
+}
+
+function ProposedActionsCard({
+  turnIndex,
+  actions,
+}: {
+  turnIndex: number;
+  actions: ProposedAction[];
+}) {
+  const [status, setStatus] = useState<"idle" | "loading" | "done" | "cancelled">("idle");
+  const [results, setResults] = useState<Array<{ ok: boolean; message: string }>>([]);
+
+  async function confirm() {
+    setStatus("loading");
+    try {
+      const res = await fetch("/api/ai/actions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actions }),
+      });
+      const data = await res.json();
+      setResults(data.results ?? []);
+      setStatus("done");
+    } catch {
+      setResults([{ ok: false, message: "Noe gikk galt. Prøv igjen." }]);
+      setStatus("done");
+    }
+  }
+
+  if (status === "cancelled") return null;
+
+  if (status === "done") {
+    return (
+      <div className="mt-3 border border-stone/40 px-5 py-4">
+        <div className="text-[10px] uppercase tracking-[0.32em] text-mute mb-2">
+          Utført
+        </div>
+        <ul className="space-y-1">
+          {results.map((r, i) => (
+            <li
+              key={`${turnIndex}-${i}`}
+              className={`font-display text-sm leading-relaxed ${
+                r.ok ? "text-soft-ink" : "text-accent"
+              }`}
+            >
+              {r.ok ? "✓ " : "· "}
+              {r.message}
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 border border-ink px-5 py-4">
+      <div className="text-[10px] uppercase tracking-[0.32em] text-mute mb-3">
+        Foreslåtte handlinger
+      </div>
+      <ul className="space-y-1 mb-4">
+        {actions.map((a, i) => (
+          <li
+            key={`${turnIndex}-${i}`}
+            className="font-display text-sm leading-relaxed text-soft-ink"
+          >
+            · {actionLabel(a)}
+          </li>
+        ))}
+      </ul>
+      <div className="flex gap-2">
+        <button
+          onClick={confirm}
+          disabled={status === "loading"}
+          className="flex-1 bg-ink text-bone py-3 text-[11px] uppercase tracking-[0.32em] disabled:opacity-50"
+        >
+          {status === "loading" ? "Utfører…" : "Bekreft"}
+        </button>
+        <button
+          onClick={() => setStatus("cancelled")}
+          disabled={status === "loading"}
+          className="px-5 py-3 border border-stone/40 text-[10px] uppercase tracking-[0.28em] text-soft-ink"
+        >
+          Avbryt
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function actionLabel(a: ProposedAction): string {
+  if (a.type === "legg_i_pung") return `Legg i pungen: ${a.label}`;
+  if (a.type === "flytt_til_onskeliste") return `Legg på ønskelisten: ${a.label}`;
+  if (a.type === "logg_hud") {
+    const feel = a.feel ? ` (${feelLabel(a.feel)})` : "";
+    return `Logg huden i dag${feel}`;
+  }
+  return "Ukjent handling";
+}
+
+function feelLabel(key: string): string {
+  const m: Record<string, string> = {
+    radiant: "Strålende",
+    balanced: "Balansert",
+    tired: "Trett",
+    tight: "Stram",
+    reactive: "Reaktiv",
+    oily: "Glinsende",
+  };
+  return m[key] ?? key;
 }
 
 function MentionedProductsRow({
@@ -350,7 +502,7 @@ export default function AdvisorUI({
       {thread.length > 0 && (
         <div className="space-y-7 mb-7">
           {thread.map((turn, i) => {
-            const sections = parseSections(turn.a);
+            const { sections, actions } = parseAnswer(turn.a);
             return (
               <div key={i}>
                 {/* User question */}
@@ -361,13 +513,17 @@ export default function AdvisorUI({
                 </div>
                 {/* Module cards */}
                 <div className="space-y-3">
-                  {sections.map((s, j) => (
+                  {sections.map((s: Section, j: number) => (
                     <ModuleCard
                       key={`${i}-${j}-${s.key}`}
                       section={s}
                     />
                   ))}
                 </div>
+                {/* Proposed actions confirm card */}
+                {actions.length > 0 && (
+                  <ProposedActionsCard turnIndex={i} actions={actions} />
+                )}
                 {/* Mentioned products with link + add to bag */}
                 {turn.mentionedProducts && turn.mentionedProducts.length > 0 && (
                   <MentionedProductsRow
