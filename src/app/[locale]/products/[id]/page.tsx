@@ -50,7 +50,7 @@ export default async function ProductPage({
       .single(),
     supabase
       .from("makeup_bag_items")
-      .select("id")
+      .select("id, loved, status")
       .eq("user_id", user.id)
       .eq("product_id", id)
       .maybeSingle(),
@@ -139,6 +139,7 @@ export default async function ProductPage({
             productId={product.id}
             locale={locale}
             alreadyInBag={bagItem !== null}
+            bagItemId={bagItem?.id ?? null}
           />
         </div>
 
