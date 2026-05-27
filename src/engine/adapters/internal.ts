@@ -566,30 +566,127 @@ function buildRecommendations(
 ): string[] {
   const out: string[] = [];
 
+  // ── Redness — graded by pattern + severity ──────────────────────
   if (scores.redness >= 60) {
-    out.push("Prioriter barrierestøttende fukt");
-    out.push("Unngå kraftig eksfoliering mens rødhet er høy");
-    out.push("Velg milde aktive ingredienser som niacinamid eller azelaic acid");
-    out.push("Bruk SPF daglig — UV forverrer rødhet over tid");
+    if (redness.pattern === "diffuse") {
+      out.push(
+        "Pause aktive syrer og retinol mens rødheten er høy — barrieren trenger ro"
+      );
+      out.push(
+        "Niacinamid 5-10% morgen og kveld reduserer både rødhet og styrker barrieren"
+      );
+      out.push(
+        "Bytt til parfymefri rens med pH 5-6 (f.eks. ceramidrens eller mild gel)"
+      );
+      out.push(
+        "Mineral-SPF med zinkoksid er mildere enn kjemisk SPF når huden er reaktiv"
+      );
+    } else if (redness.pattern === "central") {
+      out.push(
+        "Azelaic acid 10-15% er det best dokumenterte valget mot sentral rødhet"
+      );
+      out.push(
+        "Grønnbasert primer eller concealer nøytraliserer rødhet visuelt før foundation"
+      );
+      out.push(
+        "Unngå varmt vann og krydret mat når du er i en rødhets-fase"
+      );
+      out.push("Daglig SPF 30+ er ikke valgfritt — UV forverrer sentral rødhet over tid");
+    } else {
+      out.push("Lokal niacinamid og kjølige kompresser i 2-3 dager");
+      out.push("Hopp over eksfoliering denne uka — la barrieren stabilisere seg");
+    }
   } else if (scores.redness >= 40) {
-    out.push("Hold rutinen mild — ingen nye aktiver denne uka");
+    out.push("Hold rutinen mild denne uka — ingen nye aktiver");
+    out.push("Vurder en barrierestøttende krem med ceramider eller centella");
   }
 
-  if (scores.glow < 45 && scores.redness < 60) {
-    out.push("Hyaluronsyre eller vitamin C kan løfte glød");
+  // ── Glow — only when redness isn't competing for priority ───────
+  if (scores.glow < 45 && scores.redness < 55) {
+    out.push("Hyaluronsyre-serum (Hada Labo, The Ordinary HA 2% + B5) på fuktig hud morgen og kveld");
+    if (scores.redness < 35) {
+      out.push("Vitamin C 10-15% L-ascorbic acid om morgenen løfter glød på 4-6 uker");
+    } else {
+      out.push("Mild vitamin C-derivat (MAP, SAP) er tryggere enn L-ascorbic når huden er reaktiv");
+    }
   }
 
-  if (scores.evenness < 50 && scores.redness < 60) {
-    out.push("Niacinamid 5–10% over tid jevner ut hudtone uten å irritere");
+  // ── Evenness ────────────────────────────────────────────────────
+  if (scores.evenness < 50 && scores.redness < 55) {
+    out.push("Niacinamid 5-10% jevner pigment uten å irritere — gi det 8-12 uker");
+    if (scores.evenness < 35) {
+      out.push("Alpha arbutin 2% eller tranexamic acid for hyperpigmentering");
+    }
   }
 
-  if (undertone.confidence === "high" && undertone.label !== "uncertain" && undertone.label !== "likely-warm-neutral") {
-    out.push(`Match foundation mot ${undertoneShort(undertone.label)} undertone`);
+  // ── Dehydration / dullness combo ────────────────────────────────
+  if (scores.glow < 40 && scores.evenness < 50) {
+    out.push("Hyaluronsyre hydratiserer; ceramider og shea-butter LÅSER fukten inne — bruk begge i rekkefølge");
+  }
+
+  // ── Foundation guidance — confidence-aware ──────────────────────
+  if (
+    undertone.confidence === "high" &&
+    undertone.label !== "uncertain" &&
+    undertone.label !== "likely-warm-neutral"
+  ) {
+    const kw = foundationKeywords(undertone.label).slice(0, 4).join(", ");
+    out.push(
+      `Foundation: se etter ${undertoneShort(undertone.label)} undertone — søk på shade-navn som ${kw}`
+    );
+  } else if (undertone.confidence === "medium" || undertone.confidence === "medium-low") {
+    out.push(
+      "Foundation: bekreft undertonen i dagslys før kjøp — test gjerne to nyanser ved siden av hverandre"
+    );
   } else {
-    out.push("Test foundation i dagslys før kjøp — undertonen er usikker i dette bildet");
+    out.push(
+      "Foundation: ta en ny analyse i nøytralt dagslys før du satser på en bestemt undertone"
+    );
   }
 
   return out;
+}
+
+/**
+ * Per-concern paragraph advice — used by the result UI alongside the
+ * compact recommendations list. More room for nuance and ingredient
+ * specifics here.
+ */
+export function concernAdvice(key: string, skinType?: string): string {
+  const m: Record<string, string> = {
+    redness_sensitivity:
+      skinType === "sensitive"
+        ? "Med sensitiv hud og høy rødhet bør du pause alle syrer og retinol til barrieren stabiliserer seg. Niacinamid, panthenol og centella er dokumentert beroligende. Skift også til parfymefri rens."
+        : "Sensitivitet og rødhet samtidig peker mot barriereirritasjon. Drop aktiver i 1-2 uker, bruk en ceramidrik krem morgen og kveld, og hold rutinen så enkel som mulig.",
+    central_redness:
+      "Sentral rødhet (nese, kinn) er ofte sol-relatert eller en rosacea-tendens. Azelaic acid 10-15% er gullstandarden. Bruk mineral-SPF daglig, unngå varmt vann og krydret mat i flare-ups.",
+    redness:
+      "Rødhet kan dempes med niacinamid-serum, grønn primer eller grønnbeige concealer. Unngå varmt vann og kraftig eksfoliering mens den er forhøyet.",
+    uneven_tone:
+      "Regelmessig vitamin C-serum om morgenen og mild AHA-eksfoliering 2-3 ganger i uken om kvelden jevner ut hudtonen over 8-12 uker. Konsistens viktigere enn høye konsentrasjoner.",
+    dullness:
+      "Matt hud responderer godt på hyaluronsyre, glyserin og lette olje-hybrider. Vitamin C på morgenen, en mild eksfoliant 1-2 ganger i uka, og nok søvn. Fuktighet er første prioritet.",
+    dehydration:
+      "Hydrering (hyaluronsyre, glyserin) og fuktlåsing (ceramider, shea-butter) er to forskjellige ting — du trenger begge. Hydrerende serum først, deretter en rikere krem.",
+    breakout:
+      "Salicylsyre (BHA) 2% er det beste OTC-alternativet for porene. Ren niacinamid 5-10% reduserer sebum-produksjon og rødhet rundt urenheter. Adapalene 0.1% over disk er sterkere hvis det går igjen.",
+    balanced:
+      "Huden er i god balanse. Hold rutinen enkel, ikke endre noe som funker. Logg hva du gjør — det er verdt å huske til neste gang.",
+  };
+  return m[key] ?? "Spør rådgiveren for tilpassede råd.";
+}
+
+/**
+ * Foundation shade-name keywords by undertone — used to surface concrete
+ * search terms in the result UI.
+ */
+export function foundationKeywords(u: Undertone): string[] {
+  if (u === "warm") return ["Golden", "Warm", "Beige", "Peach", "Doré", "Noisette", "Honey"];
+  if (u === "cool") return ["Cool", "Pink", "Rosy", "Porcelain", "Rosé", "Ivory"];
+  if (u === "olive") return ["Olive", "Sand", "Neutral-Olive", "Sable"];
+  if (u === "likely-warm-neutral") return ["Neutral", "Warm-Neutral", "Beige", "Sand"];
+  if (u === "uncertain") return ["Neutral", "Nude", "Beige"];
+  return ["Neutral", "Nude", "Beige", "Natural", "Sand"];
 }
 
 // ============================================================

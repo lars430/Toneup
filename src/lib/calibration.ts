@@ -42,7 +42,11 @@ export interface CalibrationResult {
     /** Sharpness proxy (Laplacian magnitude estimate, 0..1; higher = sharper) */
     sharpness: number;
   };
+  /** Overall confidence (capture readiness) — only includes blocking issues */
   confidence: number;
+  /** Per-guide readiness signals for the UI */
+  faceOk: boolean;
+  paperOk: boolean;
   warnings: string[];
 }
 
@@ -104,36 +108,41 @@ export function extractCalibration(
     sharpness,
   };
 
-  // ── Warnings and confidence ────────────────────────────────────
+  // ── Per-guide blocking checks (these gate capture-readiness) ───
   const warnings: string[] = [];
-  let confidence = 1.0;
+  let paperOk = true;
+  let faceOk = true;
 
-  if (paperBrightness < 120) {
+  if (paperBrightness < 110) {
     warnings.push("lighting_too_dim");
-    confidence *= 0.6;
+    paperOk = false;
   }
   const paperSpread =
     Math.max(...paper.mean) - Math.min(...paper.mean);
-  if (paperSpread > 50) {
+  if (paperSpread > 55) {
     warnings.push("paper_not_detected");
-    confidence *= 0.4;
+    paperOk = false;
+  }
+  if (paper.stdDev > 30) {
+    warnings.push("paper_region_busy");
+    paperOk = false;
   }
   if (skin.mean[0] < skin.mean[2] - 20) {
     warnings.push("skin_region_unusual");
-    confidence *= 0.5;
+    faceOk = false;
   }
-  if (paper.stdDev > 25) {
-    warnings.push("paper_region_busy");
-    confidence *= 0.7;
+  // Skin region must be reasonably bright (i.e. there's something there)
+  const skinBrightness = (skin.mean[0] + skin.mean[1] + skin.mean[2]) / 3;
+  if (skinBrightness < 40) {
+    warnings.push("face_not_in_frame");
+    faceOk = false;
   }
-  if (sharpness < 0.25) {
-    warnings.push("image_blurry");
-    confidence *= 0.75;
-  }
-  if (warmthBias > 0.55) {
-    warnings.push("warm_indoor_light");
-    confidence *= 0.85;
-  }
+
+  // Non-blocking quality notes — affect analysis-time confidence, not capture
+  if (sharpness < 0.25) warnings.push("image_blurry");
+  if (warmthBias > 0.55) warnings.push("warm_indoor_light");
+
+  const confidence = (paperOk && faceOk) ? 1.0 : 0.3;
 
   return {
     paperRgb: paper.mean,
@@ -142,6 +151,8 @@ export function extractCalibration(
     regions,
     lighting,
     confidence,
+    faceOk,
+    paperOk,
     warnings,
   };
 }

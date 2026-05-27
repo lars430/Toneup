@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createServer } from "@/lib/supabase";
 import BottomNav from "@/components/BottomNav";
+import { concernAdvice, foundationKeywords } from "@/engine/adapters/internal";
+import type { Undertone } from "@/engine/types";
 
 type ScoreKey = "redness" | "glow" | "evenness" | "dryness";
 type ConfidenceLevel = "high" | "medium" | "medium-low" | "low";
@@ -79,6 +81,31 @@ export default async function AnalysisResultPage({
   // Bag products that may help
   const relevantProducts = findRelevantProducts(bagItems ?? [], result, undertone);
   const potentiallyProblematic = findProblematicProducts(bagItems ?? [], result, profile?.skin_type);
+
+  // Concerns from the analysis — full paragraph advice per top concern
+  const detailedConcerns = (result.concerns ?? [])
+    .slice(0, 3)
+    .map((c: any) => ({
+      key: c.key,
+      severity: c.severity,
+      advice: concernAdvice(c.key, profile?.skin_type),
+    }))
+    .filter((c: any) => c.advice && c.advice !== "Spør rådgiveren for tilpassede råd.");
+
+  // Foundation guidance — only if undertone confidence isn't "low"
+  const undertoneConfidence: ConfidenceLevel = confidence.undertone ?? "medium";
+  const fdKeywords = foundationKeywords(undertone as Undertone);
+  const showFoundation =
+    undertoneConfidence !== "low" &&
+    undertone !== "uncertain";
+
+  // Log cross-reference insights
+  const logInsights = deriveLogInsights(
+    recentLogs ?? [],
+    result.concerns ?? [],
+    profile?.skin_type,
+    undertone
+  );
 
   return (
     <main className="min-h-dvh bg-bone pb-28">
@@ -229,7 +256,7 @@ export default async function AnalysisResultPage({
           </Section>
         )}
 
-        {/* Recommendations */}
+        {/* Recommendations — compact, concrete */}
         {recommendations.length > 0 && (
           <Section eyebrow="Prioriter nå" tone="cream">
             <ul className="space-y-2">
@@ -240,6 +267,77 @@ export default async function AnalysisResultPage({
               ))}
             </ul>
           </Section>
+        )}
+
+        {/* Per-concern deeper advice — paragraph per ranked concern */}
+        {detailedConcerns.length > 0 && (
+          <section className="mb-8">
+            <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-4">
+              Faglig dybde
+            </div>
+            <div className="space-y-3">
+              {detailedConcerns.map((c: any) => (
+                <div key={c.key} className="bg-cream px-5 py-5">
+                  <div className="flex justify-between items-baseline mb-2">
+                    <div className="font-display text-base">{concernHeadline(c.key)}</div>
+                    <div className="text-[10px] uppercase tracking-[0.24em] text-mute">
+                      {qualitative(Math.round(c.severity * 100))}
+                    </div>
+                  </div>
+                  <p className="font-display text-sm text-soft-ink leading-relaxed">
+                    {c.advice}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Foundation guidance with concrete shade keywords */}
+        {showFoundation && (
+          <section className="mb-8 border border-stone/40 px-5 py-5">
+            <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-3">
+              Foundation-anbefaling
+            </div>
+            <p className="font-display text-base leading-relaxed mb-3">
+              {foundationHeadline(undertone, undertoneConfidence)}
+            </p>
+            <p className="font-display italic text-sm text-soft-ink leading-relaxed">
+              {foundationDetail(undertone, depth)}
+            </p>
+            <div className="border-t border-stone/30 pt-3 mt-3">
+              <div className="text-[10px] uppercase tracking-[0.32em] text-mute mb-2">
+                Søk etter shade-navn med
+              </div>
+              <div className="font-display text-sm">
+                {fdKeywords.slice(0, 6).join(" · ")}
+              </div>
+            </div>
+            <Link
+              href={`/${locale}/shade-match`}
+              className="inline-block mt-4 text-[10px] uppercase tracking-[0.32em] text-soft-ink underline underline-offset-4"
+            >
+              Finn shade i et bestemt merke →
+            </Link>
+          </section>
+        )}
+
+        {/* Cross-reference with skin logs */}
+        {logInsights.length > 0 && (
+          <section className="mb-8">
+            <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-3">
+              Sammenheng med hudloggene dine
+            </div>
+            <div className="space-y-2">
+              {logInsights.map((insight, i) => (
+                <div key={i} className="border-l-2 border-ink/30 pl-4 py-1">
+                  <p className="font-display italic text-sm text-soft-ink leading-relaxed">
+                    — {insight}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
         )}
 
         {/* Relevant bag products */}
@@ -454,6 +552,85 @@ function concernHeadline(key: string): string {
     breakout: "Urenheter",
     balanced: "Balansert",
   } as Record<string, string>)[key] ?? key;
+}
+
+function foundationHeadline(undertone: string, conf: ConfidenceLevel): string {
+  if (conf === "low" || undertone === "uncertain") {
+    return "Undertonen er usikker — bekreft i dagslys før du kjøper";
+  }
+  if (undertone === "warm") return "Velg foundation med gylne og varme undertoner";
+  if (undertone === "cool") return "Velg foundation med rosé og kjølige undertoner";
+  if (undertone === "olive") return "Velg foundation med olive eller nøytral-grønne undertoner";
+  if (undertone === "likely-warm-neutral")
+    return "Sannsynligvis varm-nøytral — test både warm-neutral og neutral shades";
+  return "Nøytral undertone — fokuser på dybde framfor undertone";
+}
+
+function foundationDetail(undertone: string, depth: string): string {
+  const baseByU: Record<string, string> = {
+    warm: "Varme undertoner trives med golden, peach og beige i navnet. Unngå rosé-baserte shades — de kan gjøre huden grå.",
+    cool: "Kjølige undertoner matcher pink, rosy og porcelain. Gylne nyanser kan gi en orange-aktig kontrast.",
+    olive: "Olive undertoner har en grønn-gul base. Test både warm og neutral — mange merker mangler ekte olive shades.",
+    neutral: "Nøytrale undertoner er fleksible. Fokuser på dybde og finish framfor undertone.",
+    "likely-warm-neutral": "Bildelyset var varmt så undertonen kan virke mer varm enn den er. Test både warm og neutral side-by-side.",
+    uncertain: "Test foundation i dagslys side-by-side med to nyanser — én warm, én neutral — før du satser.",
+  };
+  const base = baseByU[undertone] ?? baseByU.neutral;
+  const depthAddon =
+    depth === "fair" ? " Med lys dybde bør finish være lett og luftig — full coverage maskerer hudens egen lys."
+    : depth === "deep" ? " Med dyp dybde trenger formelen høy pigmentering for naturlig resultat."
+    : "";
+  return base + depthAddon;
+}
+
+function deriveLogInsights(
+  logs: any[],
+  concerns: any[],
+  skinType?: string,
+  undertone?: string
+): string[] {
+  if (!logs?.length) return [];
+  const out: string[] = [];
+  const avg = (k: string) =>
+    logs.reduce((s, l) => s + (l[k] ?? 3), 0) / logs.length;
+
+  const avgRedness = avg("redness");
+  const avgDryness = avg("dryness");
+  const avgGlow = avg("glow");
+  const avgSens = avg("sensitivity");
+
+  const concernKeys = concerns.map((c: any) => c.key);
+  const hasRedness = concernKeys.some((k: string) => k.includes("redness"));
+  const hasDullness = concernKeys.includes("dullness");
+
+  if (hasRedness && avgRedness >= 3.5)
+    out.push(
+      `Analysen bekrefter det loggene viser: rødhet er gjennomgående${avgRedness >= 4 ? " og markert forhøyet" : ""}`
+    );
+  if (hasRedness && avgRedness < 2.5)
+    out.push(
+      "Analysen viser rødhet, men loggene rapporterer lite rødhet generelt — kan skyldes lys eller tidspunkt"
+    );
+
+  if (hasDullness && avgGlow < 3)
+    out.push("Lav glød i analysen matcher loggene — hydrering og søvn påvirker dette mest");
+  if (hasDullness && avgGlow >= 4)
+    out.push("Du logger god glød, men analysen ser mattere overflate — sannsynligvis sesongbasert");
+
+  if (avgDryness <= 2 && skinType !== "oily")
+    out.push("Loggene viser vedvarende tørrhet — dybdehydrering bør prioriteres");
+
+  if (avgSens >= 4)
+    out.push(
+      "Du logger høy sensitivitet jevnlig. Pause aktive ingredienser i perioder med stress eller rødhet"
+    );
+
+  if (undertone === "warm" && avgDryness <= 2)
+    out.push(
+      "Varm undertone trives best med fuktgivende, gylne highlightere — tørrhet i loggene tilsier ekstra hydrering"
+    );
+
+  return out.slice(0, 3);
 }
 
 function deriveLogDryness(logs: any[]): number | null {

@@ -7,8 +7,9 @@ import { extractCalibration, type CalibrationResult } from "@/lib/calibration";
 
 // Guide positions in screen-space (0-1), matching the SVG overlay positions.
 // The camera container has scaleX(-1) (mirror), so screen-left = video-right.
-const FACE_SCREEN  = { x: 0.35, y: 0.22, w: 0.30, h: 0.36 }; // centre of oval guide
-const PAPER_SCREEN = { x: 0.05, y: 0.40, w: 0.18, h: 0.18 }; // dashed rect (appears screen-left due to mirror)
+// Face area widened slightly so users don't have to zoom past their nose.
+const FACE_SCREEN  = { x: 0.26, y: 0.16, w: 0.48, h: 0.50 }; // centre of oval guide
+const PAPER_SCREEN = { x: 0.04, y: 0.42, w: 0.18, h: 0.20 }; // dashed rect
 
 /**
  * Map a screen-space region → actual video-frame coordinates.
@@ -64,6 +65,8 @@ export default function CapturePage({
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [feedback, setFeedback] = useState<string>("calibrate.feedback.searching");
   const [confidence, setConfidence] = useState(0);
+  const [faceOk, setFaceOk] = useState(false);
+  const [paperOk, setPaperOk] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -104,6 +107,8 @@ export default function CapturePage({
         const faceRegion  = mapToVideoRegion(FACE_SCREEN,  cW, cH, vW, vH);
         const result = extractCalibration(video, paperRegion, faceRegion);
         setConfidence(result.confidence);
+        setFaceOk(result.faceOk);
+        setPaperOk(result.paperOk);
         setFeedback(feedbackKeyFor(result));
       } catch {}
     }, 600);
@@ -144,7 +149,7 @@ export default function CapturePage({
     router.push(`/${locale}/analyze/result/${analysisId}`);
   }
 
-  const ready = confidence > 0.6;
+  const ready = faceOk && paperOk;
 
   return (
     <main className="min-h-dvh flex flex-col bg-ink text-bone relative">
@@ -175,31 +180,33 @@ export default function CapturePage({
           muted
         />
 
-        {/* Overlay — inside mirror so guides align with what user sees */}
+        {/* Overlay — inside mirror so guides align with what user sees.
+            Face oval and paper square light up independently. */}
         <div className="absolute inset-0 pointer-events-none">
           <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
             <defs>
               <mask id="cutout">
                 <rect width="100" height="100" fill="white" />
-                <ellipse cx="50" cy="40" rx="22" ry="30" fill="black" />
+                <ellipse cx="50" cy="41" rx="26" ry="32" fill="black" />
               </mask>
             </defs>
-            <rect width="100" height="100" fill="rgba(28,26,23,0.45)" mask="url(#cutout)" />
-            {/* Face oval */}
+            <rect width="100" height="100" fill="rgba(28,26,23,0.42)" mask="url(#cutout)" />
+            {/* Face oval — taller than wide, fits face from forehead to chin */}
             <ellipse
-              cx="50" cy="40" rx="22" ry="30"
+              cx="50" cy="41" rx="26" ry="32"
               fill="none"
-              stroke={ready ? "#F6F2EC" : "#B5A795"}
-              strokeWidth="0.3"
-              strokeDasharray={ready ? "" : "0.8 0.8"}
+              stroke={faceOk ? "#F6F2EC" : "#B5A795"}
+              strokeWidth={faceOk ? "0.4" : "0.3"}
+              strokeDasharray={faceOk ? "" : "0.8 0.8"}
             />
-            {/* Paper guide — at SVG x=77 which appears at screen-left due to mirror */}
+            {/* Paper guide — at SVG x=78 which appears at screen-left due to mirror.
+                Anchored to the same y range as FACE_SCREEN paper region. */}
             <rect
-              x="77" y="40" width="18" height="18"
+              x="78" y="42" width="18" height="20"
               fill="none"
-              stroke={ready ? "#F6F2EC" : "#B5A795"}
-              strokeWidth="0.3"
-              strokeDasharray="0.6 0.6"
+              stroke={paperOk ? "#F6F2EC" : "#B5A795"}
+              strokeWidth={paperOk ? "0.4" : "0.3"}
+              strokeDasharray={paperOk ? "" : "0.6 0.6"}
             />
           </svg>
         </div>
@@ -247,11 +254,18 @@ export default function CapturePage({
 }
 
 function feedbackKeyFor(r: CalibrationResult): string {
-  if (r.warnings.includes("paper_not_detected")) return "calibrate.feedback.no_paper";
-  if (r.warnings.includes("lighting_too_dim")) return "calibrate.feedback.too_dim";
-  if (r.warnings.includes("skin_region_unusual")) return "calibrate.feedback.position_face";
-  if (r.warnings.includes("paper_region_busy")) return "calibrate.feedback.steady_paper";
-  if (r.confidence > 0.75) return "calibrate.feedback.ready";
-  if (r.confidence > 0.5) return "calibrate.feedback.almost";
+  // Prioritise the most actionable thing the user can fix
+  if (!r.faceOk && r.warnings.includes("face_not_in_frame"))
+    return "calibrate.feedback.position_face";
+  if (!r.faceOk && r.warnings.includes("skin_region_unusual"))
+    return "calibrate.feedback.position_face";
+  if (!r.paperOk && r.warnings.includes("paper_not_detected"))
+    return "calibrate.feedback.no_paper";
+  if (!r.paperOk && r.warnings.includes("paper_region_busy"))
+    return "calibrate.feedback.steady_paper";
+  if (!r.paperOk && r.warnings.includes("lighting_too_dim"))
+    return "calibrate.feedback.too_dim";
+  if (r.faceOk && r.paperOk) return "calibrate.feedback.ready";
+  if (r.faceOk || r.paperOk) return "calibrate.feedback.almost";
   return "calibrate.feedback.searching";
 }
