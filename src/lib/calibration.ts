@@ -197,15 +197,18 @@ function samplePaperRegion(
   }
   const rectMean = overallCount > 0 ? overallBright / overallCount : 0;
 
-  // Paper-like filter: bright + near-neutral + brighter than the rect avg.
-  // Skin has R>G>B with spread ~30-50 and brightness ~150-220, so we
-  // tighten to spread <= 40 to exclude skin reliably.
+  // Paper-like filter: bright + near-neutral.
+  // The "must stand out from the rect avg" check only applies when the region
+  // is dark (partial paper coverage). When the paper fills the entire rect,
+  // rectMean is already high and the delta check would wrongly reject every
+  // pixel. Tighter spread (<=30) reliably excludes skin — even fair skin has
+  // R-B spread of 30-50 while white paper is near-neutral (<20 typically).
   const filter = (r: number, g: number, b: number) => {
     const bright = (r + g + b) / 3;
-    if (bright < 150 || bright > 252) return false;
-    if (bright < rectMean + 15) return false; // must stand out from the rest
+    if (bright < 170 || bright > 252) return false;
+    if (rectMean < 160 && bright < rectMean + 20) return false;
     const spread = Math.max(r, g, b) - Math.min(r, g, b);
-    return spread <= 40;
+    return spread <= 30;
   };
 
   let rSum = 0, gSum = 0, bSum = 0;
