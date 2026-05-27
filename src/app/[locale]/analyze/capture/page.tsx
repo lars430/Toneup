@@ -75,10 +75,31 @@ export default function CapturePage({
     (async () => {
       try {
         const s = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user", width: { ideal: 720 }, height: { ideal: 1280 } },
+          video: {
+            facingMode: "user",
+            width: { ideal: 720 },
+            height: { ideal: 1280 },
+          },
           audio: false,
         });
         if (cancelled) { s.getTracks().forEach((t) => t.stop()); return; }
+
+        // Reset any auto-zoom the front camera might have applied at startup.
+        // iOS Safari 17+ and most Android browsers expose zoom as a track
+        // capability. We pull the lowest supported value so the lens is
+        // fully wide. Silently ignored on browsers without support.
+        const track = s.getVideoTracks()[0];
+        try {
+          const caps = (track?.getCapabilities?.() as any) ?? {};
+          if (caps.zoom && typeof caps.zoom.min === "number") {
+            await track.applyConstraints({
+              advanced: [{ zoom: caps.zoom.min } as any],
+            });
+          }
+        } catch {
+          // browser doesn't support zoom — nothing we can do
+        }
+
         setStream(s);
         if (videoRef.current) {
           videoRef.current.srcObject = s;
