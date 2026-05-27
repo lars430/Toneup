@@ -69,7 +69,7 @@ export function extractCalibration(
   const ctx = canvas.getContext("2d")!;
   ctx.drawImage(imageEl, 0, 0, w, h);
 
-  const paper = sampleRegion(ctx, paperRegion, w, h);
+  const paper = samplePaperRegion(ctx, paperRegion, w, h);
   const skin = sampleRegion(ctx, skinRegion, w, h);
 
   // Derive sub-regions from the face region. Coordinates relative to the
@@ -113,20 +113,22 @@ export function extractCalibration(
   let paperOk = true;
   let faceOk = true;
 
-  if (paperBrightness < 110) {
-    warnings.push("lighting_too_dim");
-    paperOk = false;
-  }
-  const paperSpread =
-    Math.max(...paper.mean) - Math.min(...paper.mean);
-  if (paperSpread > 55) {
+  // Paper detection — coverage-based. The rect can be larger than the
+  // paper; we only need a real cluster of paper-like pixels inside it.
+  const coverage = paper.coverage ?? 0;
+  if (coverage < 0.15) {
     warnings.push("paper_not_detected");
     paperOk = false;
-  }
-  if (paper.stdDev > 30) {
+  } else if (paperBrightness < 140) {
+    // Even the paper cluster looks dim — likely shadows
+    warnings.push("lighting_too_dim");
+    paperOk = false;
+  } else if (paper.stdDev > 22) {
+    // The cluster itself is too varied — likely not a flat surface
     warnings.push("paper_region_busy");
     paperOk = false;
   }
+
   if (skin.mean[0] < skin.mean[2] - 20) {
     warnings.push("skin_region_unusual");
     faceOk = false;
@@ -158,6 +160,70 @@ export function extractCalibration(
 }
 
 // ────────────────────────────────────────────────────────────────────
+
+/**
+ * Adaptive paper sampling — robust to partial coverage of the rect.
+ * Filters to pixels that look paper-like (bright, near-neutral color) and
+ * computes mean/stdDev only on that subset. Falls back to plain region
+ * sampling if no paper-like cluster is found.
+ *
+ * Returns an extra `coverage` field on the mean (carried via stdDev as
+ * a low-stdDev signal). The caller decides if coverage is enough.
+ */
+function samplePaperRegion(
+  ctx: CanvasRenderingContext2D,
+  region: { x: number; y: number; w: number; h: number },
+  imgW: number,
+  imgH: number
+): RegionSample & { coverage: number } {
+  const x = Math.max(0, Math.floor(region.x * imgW));
+  const y = Math.max(0, Math.floor(region.y * imgH));
+  const w = Math.min(imgW - x, Math.floor(region.w * imgW));
+  const h = Math.min(imgH - y, Math.floor(region.h * imgH));
+
+  if (w <= 0 || h <= 0)
+    return { mean: [0, 0, 0], stdDev: 0, coverage: 0 };
+
+  const data = ctx.getImageData(x, y, w, h).data;
+  const totalPx = data.length / 4;
+
+  // Pass 1: keep only paper-like pixels — bright + low color spread
+  let rSum = 0, gSum = 0, bSum = 0;
+  let kept = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i], g = data[i + 1], b = data[i + 2];
+    const bright = (r + g + b) / 3;
+    if (bright < 130 || bright > 252) continue;
+    const spread = Math.max(r, g, b) - Math.min(r, g, b);
+    if (spread > 35) continue;     // colorful → not paper
+    rSum += r; gSum += g; bSum += b;
+    kept++;
+  }
+
+  // If we have a meaningful cluster, return it
+  if (kept / totalPx >= 0.2 && kept > 0) {
+    const mean: [number, number, number] = [rSum / kept, gSum / kept, bSum / kept];
+    // Pass 2: stdDev on the kept pixels only
+    let variance = 0;
+    let n = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      const bright = (r + g + b) / 3;
+      if (bright < 130 || bright > 252) continue;
+      const spread = Math.max(r, g, b) - Math.min(r, g, b);
+      if (spread > 35) continue;
+      const dr = r - mean[0], dg = g - mean[1], db = b - mean[2];
+      variance += (dr * dr + dg * dg + db * db) / 3;
+      n++;
+    }
+    const stdDev = n > 0 ? Math.sqrt(variance / n) : 0;
+    return { mean, stdDev, coverage: kept / totalPx };
+  }
+
+  // Fallback — no paper cluster found; return plain region sample
+  const fallback = sampleRegion(ctx, region, imgW, imgH);
+  return { ...fallback, coverage: 0 };
+}
 
 function sampleRegion(
   ctx: CanvasRenderingContext2D,
