@@ -1,56 +1,30 @@
 /**
- * Client-side image processing for white-balance calibration + sub-region
- * sampling.
+ * Client-side image processing for white-balance calibration.
  *
  * Runs entirely in the browser using Canvas API — no upload, no API cost.
+ * The user holds a piece of white paper near their face. We:
+ *   1. Sample the brightest near-neutral region → that's the paper
+ *   2. Sample the face center → that's the skin
+ *   3. Send both RGB values + the original image to the server
+ *      The server's InternalAdapter does the math.
  *
- * The capture flow gives us two UI-guided regions: a white paper for white
- * balance, and the face oval. From the face region we automatically derive
- * sub-regions (forehead, nose, cheek L/R, chin) so the analysis can do
- * region-aware redness detection.
- *
- * Privacy benefit: we can skip uploading the full image entirely and just
- * send the extracted RGB samples. The user's face never leaves the device.
+ * Privacy benefit: we can optionally skip uploading the full image entirely
+ * and just send the extracted RGB pairs. The user's face never leaves
+ * their device.
  */
-
-export interface RegionSample {
-  mean: [number, number, number];
-  stdDev: number;
-}
 
 export interface CalibrationResult {
   paperRgb: [number, number, number];
   skinRgb: [number, number, number];
-  /** Per-region samples on the face — used for region-aware redness etc. */
-  regions?: {
-    forehead?: RegionSample;
-    nose?: RegionSample;
-    cheekL?: RegionSample;
-    cheekR?: RegionSample;
-    chin?: RegionSample;
-  };
-  /** Std-dev of the whole face region — proxy for evenness */
-  skinStdDev?: number;
-  /** Lighting metrics derived from paper + skin */
-  lighting?: {
-    /** Mean luminance of paper (0..1) */
-    brightness: number;
-    /** How warm the paper looks (R-B normalized); higher = warmer indoor light */
-    warmthBias: number;
-    /** Std-dev of paper region — high = uneven light, not a flat paper */
-    paperUniformity: number;
-    /** Sharpness proxy (Laplacian magnitude estimate, 0..1; higher = sharper) */
-    sharpness: number;
-  };
   confidence: number;
   warnings: string[];
 }
 
 /**
- * Extract calibration + sub-region data from a captured image.
- * @param imageEl  HTMLImageElement or HTMLVideoElement with the frame loaded
- * @param paperRegion normalized rect (0..1) — paper position
- * @param skinRegion  normalized rect (0..1) — face center
+ * Extract calibration data from a captured image.
+ * @param imageEl - HTMLImageElement or HTMLVideoElement with the frame loaded
+ * @param paperRegion - normalized rect (0..1) where paper should be (UI-guided)
+ * @param skinRegion - normalized rect (0..1) where face center is (UI-guided)
  */
 export function extractCalibration(
   imageEl: HTMLImageElement | HTMLVideoElement,
@@ -68,46 +42,11 @@ export function extractCalibration(
   const paper = sampleRegion(ctx, paperRegion, w, h);
   const skin = sampleRegion(ctx, skinRegion, w, h);
 
-  // Derive sub-regions from the face region. Coordinates relative to the
-  // face rect, then mapped back to absolute normalized image coords.
-  const fr = skinRegion;
-  const sub = (rx: number, ry: number, rw: number, rh: number) => ({
-    x: fr.x + rx * fr.w,
-    y: fr.y + ry * fr.h,
-    w: rw * fr.w,
-    h: rh * fr.h,
-  });
-
-  // Sub-regions roughly aligned to a centered face inside the oval guide.
-  const regions = {
-    forehead: sampleRegion(ctx, sub(0.20, 0.05, 0.60, 0.15), w, h),
-    nose:     sampleRegion(ctx, sub(0.42, 0.30, 0.16, 0.30), w, h),
-    cheekL:   sampleRegion(ctx, sub(0.05, 0.40, 0.22, 0.22), w, h),
-    cheekR:   sampleRegion(ctx, sub(0.73, 0.40, 0.22, 0.22), w, h),
-    chin:     sampleRegion(ctx, sub(0.32, 0.78, 0.36, 0.15), w, h),
-  };
-
-  // Lighting metrics from paper
-  const paperBrightness =
-    (paper.mean[0] + paper.mean[1] + paper.mean[2]) / 3;
-  const warmthBias = clamp01(
-    (paper.mean[0] - paper.mean[2]) / Math.max(1, paperBrightness) * 4
-  );
-
-  // Sharpness — sample a small central strip and compute Laplacian
-  const sharpness = estimateSharpness(ctx, skinRegion, w, h);
-
-  const lighting = {
-    brightness: clamp01(paperBrightness / 255),
-    warmthBias,
-    paperUniformity: paper.stdDev,
-    sharpness,
-  };
-
-  // ── Warnings and confidence ────────────────────────────────────
   const warnings: string[] = [];
   let confidence = 1.0;
 
+  // Sanity check: paper should be bright and near-neutral
+  const paperBrightness = (paper.mean[0] + paper.mean[1] + paper.mean[2]) / 3;
   if (paperBrightness < 120) {
     warnings.push("lighting_too_dim");
     confidence *= 0.6;
@@ -115,56 +54,46 @@ export function extractCalibration(
   const paperSpread =
     Math.max(...paper.mean) - Math.min(...paper.mean);
   if (paperSpread > 50) {
-    warnings.push("paper_not_detected");
+    warnings.push("paper_not_detected"); // too colorful to be paper
     confidence *= 0.4;
   }
+
+  // Sanity check: skin region should look like skin (warm-ish, not too pale)
   if (skin.mean[0] < skin.mean[2] - 20) {
-    warnings.push("skin_region_unusual");
+    warnings.push("skin_region_unusual"); // blue dominant — likely wrong region
     confidence *= 0.5;
   }
+
+  // Sanity check: variance in paper region shouldn't be huge (uniform paper)
   if (paper.stdDev > 25) {
     warnings.push("paper_region_busy");
     confidence *= 0.7;
-  }
-  if (sharpness < 0.25) {
-    warnings.push("image_blurry");
-    confidence *= 0.75;
-  }
-  if (warmthBias > 0.55) {
-    warnings.push("warm_indoor_light");
-    confidence *= 0.85;
   }
 
   return {
     paperRgb: paper.mean,
     skinRgb: skin.mean,
-    skinStdDev: skin.stdDev,
-    regions,
-    lighting,
     confidence,
     warnings,
   };
 }
-
-// ────────────────────────────────────────────────────────────────────
 
 function sampleRegion(
   ctx: CanvasRenderingContext2D,
   region: { x: number; y: number; w: number; h: number },
   imgW: number,
   imgH: number
-): RegionSample {
-  const x = Math.max(0, Math.floor(region.x * imgW));
-  const y = Math.max(0, Math.floor(region.y * imgH));
-  const w = Math.min(imgW - x, Math.floor(region.w * imgW));
-  const h = Math.min(imgH - y, Math.floor(region.h * imgH));
-
-  if (w <= 0 || h <= 0) return { mean: [0, 0, 0], stdDev: 0 };
+) {
+  const x = Math.floor(region.x * imgW);
+  const y = Math.floor(region.y * imgH);
+  const w = Math.floor(region.w * imgW);
+  const h = Math.floor(region.h * imgH);
 
   const data = ctx.getImageData(x, y, w, h).data;
   let rSum = 0, gSum = 0, bSum = 0;
   let count = 0;
 
+  // First pass: mean (ignore very dark and very bright pixels — likely shadows/glare)
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i], g = data[i + 1], b = data[i + 2];
     const bright = (r + g + b) / 3;
@@ -173,10 +102,13 @@ function sampleRegion(
     count++;
   }
 
-  if (count === 0) return { mean: [0, 0, 0], stdDev: 0 };
+  if (count === 0) {
+    return { mean: [0, 0, 0] as [number, number, number], stdDev: 0 };
+  }
 
   const mean: [number, number, number] = [rSum / count, gSum / count, bSum / count];
 
+  // Second pass: std-dev (signals uniformity of the region)
   let variance = 0;
   let n = 0;
   for (let i = 0; i < data.length; i += 4) {
@@ -190,48 +122,4 @@ function sampleRegion(
   const stdDev = Math.sqrt(variance / n);
 
   return { mean, stdDev };
-}
-
-/**
- * Rough sharpness estimate — compute variance of Laplacian-like differences
- * across a central horizontal strip. Higher = sharper. Cheap, runs in ~5ms.
- */
-function estimateSharpness(
-  ctx: CanvasRenderingContext2D,
-  region: { x: number; y: number; w: number; h: number },
-  imgW: number,
-  imgH: number
-): number {
-  const x = Math.max(0, Math.floor(region.x * imgW));
-  const y = Math.max(0, Math.floor((region.y + region.h * 0.4) * imgH));
-  const w = Math.min(imgW - x, Math.floor(region.w * imgW));
-  const h = Math.min(imgH - y, Math.max(8, Math.floor(region.h * 0.15 * imgH)));
-  if (w <= 0 || h <= 0) return 0.5;
-
-  const data = ctx.getImageData(x, y, w, h).data;
-  let acc = 0;
-  let n = 0;
-  // Use grayscale + 1D Laplacian along x
-  for (let row = 0; row < h; row++) {
-    for (let col = 1; col < w - 1; col++) {
-      const i = (row * w + col) * 4;
-      const gPrev = grayAt(data, i - 4);
-      const gNext = grayAt(data, i + 4);
-      const gCur = grayAt(data, i);
-      const lap = Math.abs(gPrev + gNext - 2 * gCur);
-      acc += lap;
-      n++;
-    }
-  }
-  const mean = n > 0 ? acc / n : 0;
-  // Empirical normalization — values typically land 1..15
-  return clamp01(mean / 10);
-}
-
-function grayAt(data: Uint8ClampedArray, i: number): number {
-  return 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-}
-
-function clamp01(n: number): number {
-  return Math.max(0, Math.min(1, n));
 }

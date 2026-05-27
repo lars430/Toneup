@@ -32,81 +32,26 @@ export interface ImageInput {
 
 // ---- Outputs ----
 
-export type ConfidenceLevel = "high" | "medium" | "medium-low" | "low";
-export type Undertone = "warm" | "cool" | "neutral" | "olive" | "likely-warm-neutral" | "uncertain";
-export type RednessPattern = "none" | "central" | "cheeks" | "local" | "diffuse";
-
 export interface SkinAnalysisResult {
   engine: "revieve" | "mock" | "openai";
   engineVersion: string;
-
-  /**
-   * 0-100 priority scores. These are RELATIVE signals for product matching,
-   * NOT clinical measurements. Use them to rank concerns, not to claim "X%
-   * dry skin".
-   */
-  scores?: {
-    redness: number;
-    glow: number;
-    evenness: number;
-    dryness: number;       // image-only — usually low confidence
-  };
-
-  /** Per-dimension confidence — drives how strongly we lean on each score */
-  confidence?: {
-    overall: ConfidenceLevel;
-    redness: ConfidenceLevel;
-    undertone: ConfidenceLevel;
-    dryness: ConfidenceLevel;
-    evenness: ConfidenceLevel;
-  };
-
-  /** Lighting context that affected the analysis */
-  lightingQuality?: {
-    overall: "good" | "warm" | "dim" | "uneven" | "unknown";
-    warmthBias: number;          // 0..1, higher = more yellow indoor light
-    brightness: number;          // 0..1
-    notes: string[];
-  };
-
-  /** Top concern keys, ranked */
-  primaryConcern?: string;
-  secondaryConcerns?: string[];
-  lowPriorityConcerns?: string[];
-
-  /** Short explanation of why each score landed where it did */
-  scoreRationale?: Record<string, string>;
-
-  /** What the picture actually shows */
-  observations?: string[];
-  /** What that might mean — explicitly tentative */
-  interpretations?: string[];
-  /** What the user should prioritize */
-  recommendations?: string[];
-
-  /**
-   * Legacy normalized 0..1 metrics. Kept for backward compatibility with
-   * existing code paths (home/result pages, rules engine). Mirrors `scores`
-   * scaled to 0..1 where applicable.
-   */
+  /** Normalized 0..1 metrics — Toneup's contract, motor-agnostic */
   metrics: {
-    hydration: number;
+    hydration: number;       // 0 = very dry, 1 = well hydrated
     oiliness: number;
     redness: number;
-    evenness: number;
+    evenness: number;        // 0 = uneven tone, 1 = even
     smoothness: number;
     radiance: number;
     poreVisibility: number;
     sensitivityIndicators: number;
   };
-
   /** Detected concerns ranked by salience */
   concerns: Array<{
-    key: string;
-    severity: number;
-    confidence: number;
+    key: string;             // 'dehydration', 'breakout', 'redness', 'dullness', ...
+    severity: number;        // 0..1
+    confidence: number;      // 0..1
   }>;
-
   /** Optional raw payload for debugging / future re-processing */
   raw?: unknown;
 }
