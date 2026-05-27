@@ -113,17 +113,14 @@ export function extractCalibration(
   let paperOk = true;
   let faceOk = true;
 
-  // Paper detection — coverage-based. The rect can be larger than the
-  // paper; we only need a real cluster of paper-like pixels inside it.
+  // Paper detection — coverage-based on paper-like pixels inside the rect.
+  // The filter already requires bright + neutral + brighter-than-rect-avg,
+  // so we just need a reasonable cluster.
   const coverage = paper.coverage ?? 0;
-  if (coverage < 0.15) {
+  if (coverage < 0.25) {
     warnings.push("paper_not_detected");
     paperOk = false;
-  } else if (paperBrightness < 140) {
-    // Even the paper cluster looks dim — likely shadows
-    warnings.push("lighting_too_dim");
-    paperOk = false;
-  } else if (paper.stdDev > 22) {
+  } else if (paper.stdDev > 20) {
     // The cluster itself is too varied — likely not a flat surface
     warnings.push("paper_region_busy");
     paperOk = false;
@@ -187,31 +184,46 @@ function samplePaperRegion(
   const data = ctx.getImageData(x, y, w, h).data;
   const totalPx = data.length / 4;
 
-  // Pass 1: keep only paper-like pixels — bright + low color spread
+  // First, compute the overall mean of the rect so we can require paper
+  // to be a genuinely bright spot — not just any "kind of bright" pixels.
+  let overallBright = 0;
+  let overallCount = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i], g = data[i + 1], b = data[i + 2];
+    const bright = (r + g + b) / 3;
+    if (bright < 30 || bright > 252) continue;
+    overallBright += bright;
+    overallCount++;
+  }
+  const rectMean = overallCount > 0 ? overallBright / overallCount : 0;
+
+  // Paper-like filter: bright + near-neutral + brighter than the rect avg.
+  // Skin has R>G>B with spread ~30-50 and brightness ~150-220, so we
+  // tighten to spread <= 40 to exclude skin reliably.
+  const filter = (r: number, g: number, b: number) => {
+    const bright = (r + g + b) / 3;
+    if (bright < 150 || bright > 252) return false;
+    if (bright < rectMean + 15) return false; // must stand out from the rest
+    const spread = Math.max(r, g, b) - Math.min(r, g, b);
+    return spread <= 40;
+  };
+
   let rSum = 0, gSum = 0, bSum = 0;
   let kept = 0;
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i], g = data[i + 1], b = data[i + 2];
-    const bright = (r + g + b) / 3;
-    if (bright < 130 || bright > 252) continue;
-    const spread = Math.max(r, g, b) - Math.min(r, g, b);
-    if (spread > 35) continue;     // colorful → not paper
+    if (!filter(r, g, b)) continue;
     rSum += r; gSum += g; bSum += b;
     kept++;
   }
 
-  // If we have a meaningful cluster, return it
-  if (kept / totalPx >= 0.2 && kept > 0) {
+  if (kept / totalPx >= 0.25 && kept > 0) {
     const mean: [number, number, number] = [rSum / kept, gSum / kept, bSum / kept];
-    // Pass 2: stdDev on the kept pixels only
     let variance = 0;
     let n = 0;
     for (let i = 0; i < data.length; i += 4) {
       const r = data[i], g = data[i + 1], b = data[i + 2];
-      const bright = (r + g + b) / 3;
-      if (bright < 130 || bright > 252) continue;
-      const spread = Math.max(r, g, b) - Math.min(r, g, b);
-      if (spread > 35) continue;
+      if (!filter(r, g, b)) continue;
       const dr = r - mean[0], dg = g - mean[1], db = b - mean[2];
       variance += (dr * dr + dg * dg + db * db) / 3;
       n++;
@@ -220,7 +232,7 @@ function samplePaperRegion(
     return { mean, stdDev, coverage: kept / totalPx };
   }
 
-  // Fallback — no paper cluster found; return plain region sample
+  // Fallback — no paper-like cluster found
   const fallback = sampleRegion(ctx, region, imgW, imgH);
   return { ...fallback, coverage: 0 };
 }

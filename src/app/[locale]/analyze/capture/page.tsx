@@ -7,9 +7,10 @@ import { extractCalibration, type CalibrationResult } from "@/lib/calibration";
 
 // Guide positions in screen-space (0-1), matching the SVG overlay positions.
 // The camera container has scaleX(-1) (mirror), so screen-left = video-right.
-// Face area widened slightly so users don't have to zoom past their nose.
+// Face area widened so users don't have to zoom past their nose.
 const FACE_SCREEN  = { x: 0.26, y: 0.16, w: 0.48, h: 0.50 }; // centre of oval guide
-const PAPER_SCREEN = { x: 0.04, y: 0.42, w: 0.18, h: 0.20 }; // dashed rect
+// Smaller, more focused paper sample region — matches the SVG rect at x=80, y=44, 14×14
+const PAPER_SCREEN = { x: 0.06, y: 0.44, w: 0.14, h: 0.14 };
 
 /**
  * Map a screen-space region → actual video-frame coordinates.
@@ -181,13 +182,15 @@ export default function CapturePage({
         />
 
         {/* Overlay — inside mirror so guides align with what user sees.
-            Face oval and paper square light up independently. */}
+            Both guides cut through the dark overlay so the user sees the
+            camera clearly inside each, and light up independently. */}
         <div className="absolute inset-0 pointer-events-none">
           <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
             <defs>
               <mask id="cutout">
                 <rect width="100" height="100" fill="white" />
                 <ellipse cx="50" cy="41" rx="26" ry="32" fill="black" />
+                <rect x="80" y="44" width="14" height="14" fill="black" />
               </mask>
             </defs>
             <rect width="100" height="100" fill="rgba(28,26,23,0.42)" mask="url(#cutout)" />
@@ -199,10 +202,10 @@ export default function CapturePage({
               strokeWidth={faceOk ? "0.4" : "0.3"}
               strokeDasharray={faceOk ? "" : "0.8 0.8"}
             />
-            {/* Paper guide — at SVG x=78 which appears at screen-left due to mirror.
-                Anchored to the same y range as FACE_SCREEN paper region. */}
+            {/* Paper guide — smaller and more compact so a fingernail-sized
+                bit of paper fills it. At SVG x=80 → screen-left after mirror. */}
             <rect
-              x="78" y="42" width="18" height="20"
+              x="80" y="44" width="14" height="14"
               fill="none"
               stroke={paperOk ? "#F6F2EC" : "#B5A795"}
               strokeWidth={paperOk ? "0.4" : "0.3"}
