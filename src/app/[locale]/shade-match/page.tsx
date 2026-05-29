@@ -38,7 +38,16 @@ export default async function ShadeMatchPage({
     ]);
 
   const season = computeSeason();
-  const sig = buildSignal(lastAnalysis, recentLogs ?? [], profile, season);
+  const manualUndertone = profile?.preferences?.manual_undertone as string | undefined;
+  const manualDepth = profile?.preferences?.manual_depth as string | undefined;
+  const sig = {
+    ...buildSignal(lastAnalysis, recentLogs ?? [], profile, season),
+    ...(manualUndertone && manualUndertone !== "unknown" ? { undertone: manualUndertone } : {}),
+    ...(manualDepth && manualDepth !== "unknown" ? { depth: manualDepth } : {}),
+  };
+  const usingManualProfile =
+    (!!manualUndertone && manualUndertone !== "unknown") ||
+    (!!manualDepth && manualDepth !== "unknown");
 
   // All foundations
   const { data: foundations } = await supabase
@@ -114,7 +123,7 @@ export default async function ShadeMatchPage({
         </div>
 
         {/* Signal summary */}
-        {!hasSignal && !selectedBrand && (
+        {!hasSignal && !usingManualProfile && !selectedBrand && (
           <section className="mb-8 bg-cream px-5 py-5">
             <div className="text-[10px] uppercase tracking-[0.32em] text-mute mb-2">
               Vi trenger din palett
@@ -142,6 +151,14 @@ export default async function ShadeMatchPage({
               {lovedFoundations.length > 0 &&
                 ` · ${lovedFoundations.length} favoritter`}
             </div>
+            {usingManualProfile && (
+              <Link
+                href={`/${locale}/me/profile`}
+                className="inline-block mt-2 text-[10px] uppercase tracking-[0.28em] text-soft-ink underline underline-offset-4"
+              >
+                Manuell profil aktiv · Endre →
+              </Link>
+            )}
           </section>
         )}
 

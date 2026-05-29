@@ -1,12 +1,9 @@
 /**
  * Skin profile analysis — depth, undertone, redness (separate from undertone).
  *
- * Pipeline:
- *   1. Client calibration (RGB regions + paper reference)
- *   2. Heuristic profile (always, privacy-friendly)
- *   3. Optional OpenAI Vision merge when OPENAI_API_KEY + image provided
- *
- * OpenAI returns structured JSON only — never product picks.
+ * Redness is measured as deviation from the user's own base skin (forehead,
+ * temples, jawline) in Lab space — not absolute RGB redness. Natural
+ * pink/cool undertone on fair skin is `visible_pinkness`, not `surface_redness`.
  */
 
 import type { Undertone } from "@/engine/types";
@@ -28,7 +25,18 @@ export type SkinUndertone =
   | "warm"
   | "olive";
 
-export type RednessLevel = "none" | "low" | "medium" | "high";
+export type Level = "none" | "low" | "medium" | "high";
+/** @deprecated Use surface_redness */
+export type RednessLevel = Level;
+
+export type RednessType =
+  | "none"
+  | "natural_pinkness"
+  | "flush"
+  | "irritation"
+  | "rosacea_like"
+  | "uncertain";
+
 export type WhiteBalanceStatus = "corrected" | "missing" | "unreliable";
 export type LightingQualityLabel = "good" | "acceptable" | "poor";
 
@@ -61,7 +69,13 @@ export interface CalibrationInput {
 export interface SkinProfile {
   skin_depth: SkinDepth;
   undertone: SkinUndertone;
-  redness_level: RednessLevel;
+  visible_pinkness: Level;
+  surface_redness: Level;
+  redness_type: RednessType;
+  redness_regions: string[];
+  redness_confidence: number;
+  /** Same as surface_redness — kept for backward compatibility */
+  redness_level: Level;
   surface_redness_regions: string[];
   white_reference_detected: boolean;
   white_balance_status: WhiteBalanceStatus;
@@ -72,9 +86,7 @@ export interface SkinProfile {
   avoid_foundation_depths: SkinDepth[];
   avoid_undertones: string[];
   confidence: number;
-  /** Legacy depth for existing UI / fit-now */
   legacy_depth: "fair" | "light" | "medium" | "tan" | "deep";
-  /** Legacy undertone for shade match */
   legacy_undertone: Undertone;
   debug?: SkinProfileDebug;
 }
@@ -84,8 +96,15 @@ export interface SkinProfileDebug {
   estimated_undertone: SkinUndertone;
   sampled_regions: string[];
   excluded_regions: string[];
-  redness_level: RednessLevel;
-  white_balance_rgb: [number, number, number] | null;
+  base_skin_rgb_lab: [number, number, number];
+  redness_zone_rgb_lab: Record<string, [number, number, number]>;
+  redness_delta_from_base: Record<string, number>;
+  visible_pinkness: Level;
+  surface_redness: Level;
+  redness_type: RednessType;
+  redness_regions: string[];
+  redness_confidence: number;
+  white_balance_status: WhiteBalanceStatus;
   lighting_quality: LightingQualityLabel;
   confidence: number;
   reason_for_low_confidence?: string;
@@ -102,57 +121,52 @@ const DEPTH_ORDER: SkinDepth[] = [
   "deep",
 ];
 
-const SKIN_ANALYSIS_PROMPT = `You are a cosmetic color analyst. Analyze ONLY skin tone for foundation matching.
-Return valid JSON matching this schema exactly (no markdown):
+const BASE_REGIONS = ["forehead", "templeL", "templeR", "jawline"] as const;
+const REDNESS_ZONE_KEYS = ["nose", "cheekL", "cheekR", "chin"] as const;
+
+const SKIN_ANALYSIS_PROMPT = `You are a cosmetic color analyst. Return JSON only:
 {
   "skin_depth": "fair|fair_light|light|light_medium|medium|tan|deep",
   "undertone": "cool|neutral_cool|neutral|neutral_warm|warm|olive",
-  "redness_level": "none|low|medium|high",
-  "surface_redness_regions": ["nose","central_cheeks",...],
+  "visible_pinkness": "none|low|medium|high",
+  "surface_redness": "none|low|medium|high",
+  "redness_type": "none|natural_pinkness|flush|irritation|rosacea_like|uncertain",
+  "redness_regions": [],
+  "redness_confidence": 0.0-1.0,
   "white_reference_detected": boolean,
   "white_balance_status": "corrected|missing|unreliable",
   "lighting_quality": "good|acceptable|poor",
-  "sampled_regions": ["forehead","temple",...],
-  "excluded_regions": ["nose","beard",...],
-  "recommended_foundation_depth_range": ["fair_light","light"],
-  "avoid_foundation_depths": ["medium","tan","deep"],
-  "avoid_undertones": ["strong_warm","golden_orange"],
+  "sampled_regions": [],
+  "excluded_regions": [],
+  "recommended_foundation_depth_range": [],
+  "avoid_foundation_depths": [],
+  "avoid_undertones": [],
   "confidence": 0.0-1.0
 }
 
-Rules:
-- EXCLUDE nose, beard/shadow, lips, eyes, eyebrows, hair, hard shadows, specular highlights from depth/undertone.
-- Weight forehead, temples, jawline, neck, even cheeks WITHOUT redness highest.
-- Redness is separate: record redness_level and surface_redness_regions but do NOT let redness imply warm undertone or darker depth.
-- If light skin with redness/beard/shadow, prefer fair_light or light — never medium/tan from mid-face redness.
-- If uncertain between light and medium, choose lighter depth and lower confidence.
-- If undertone uncertain, prefer neutral_cool or neutral — not warm.
-- Use white paper in frame for white balance when visible.`;
+Redness rules (critical):
+- Do NOT treat natural pink/cool undertone on fair Scandinavian skin as high surface_redness.
+- surface_redness = zones clearly redder than the person's OWN forehead/temple/jawline base — not absolute pinkness.
+- visible_pinkness = even rosy/cool cast without localized flush zones; does NOT mean a skin problem.
+- If whole face is evenly pink with no stronger nose/cheek zones → natural_pinkness + low surface_redness.
+- Localized nose/cheeks much redder than forehead/jaw → surface_redness + flush/irritation/rosacea_like.
+- surface_redness must NOT change skin_depth or push undertone to cool.
+- For fair/fair_light/light skin, be conservative — most even pink faces are visible_pinkness low/medium, surface_redness none/low.
+- Lower redness_confidence if lighting or white balance is poor.`;
 
-/** Main entry: heuristic + optional OpenAI merge */
 export async function analyzeSkinProfile(
   calibration: CalibrationInput,
   options?: { imageBase64?: string; openaiApiKey?: string }
 ): Promise<SkinProfile> {
   const heuristic = analyzeFromCalibration(calibration);
   const key = options?.openaiApiKey ?? process.env.OPENAI_API_KEY;
-  if (!key || !options?.imageBase64) {
-    return heuristic;
-  }
+  if (!key || !options?.imageBase64) return heuristic;
 
   try {
     const vision = await analyzeWithOpenAI(calibration, options.imageBase64, key);
     return mergeProfiles(heuristic, vision);
   } catch (err) {
     console.warn("[skin-profile] OpenAI vision failed, using heuristic:", err);
-    if (process.env.NODE_ENV === "development") {
-      heuristic.debug = {
-        ...heuristic.debug!,
-        reason_for_low_confidence:
-          (heuristic.debug?.reason_for_low_confidence ?? "") +
-          "; openai_failed",
-      };
-    }
     return heuristic;
   }
 }
@@ -167,24 +181,13 @@ export function analyzeFromCalibration(calib: CalibrationInput): SkinProfile {
   }
   const faceCorrected = applyWB(calib.skinRgb, gains);
 
-  const rednessByRegion: Record<string, number> = {};
-  for (const [name, rgb] of Object.entries(regionsCorrected)) {
-    if (rgb) rednessByRegion[name] = rednessIndex(rgb);
-  }
+  const rednessAnalysis = analyzeRelativeRedness(
+    regionsCorrected,
+    faceCorrected,
+    calib.lighting,
+    wb
+  );
 
-  const elevatedRed = Object.entries(rednessByRegion)
-    .filter(([, v]) => v >= 0.45)
-    .map(([k]) => k);
-
-  const alwaysExclude = new Set([
-    "nose",
-    "beard",
-    "lips",
-    "eyes",
-    "eyebrows",
-    "hair",
-    "shadows",
-  ]);
   const excluded: string[] = [
     "nose",
     "lips",
@@ -193,32 +196,32 @@ export function analyzeFromCalibration(calib: CalibrationInput): SkinProfile {
     "hair",
     "shadows",
   ];
-  if (elevatedRed.includes("cheekL") || elevatedRed.includes("cheekR")) {
+  if (rednessAnalysis.elevatedZones.includes("cheekL") || rednessAnalysis.elevatedZones.includes("cheekR")) {
     excluded.push("central_cheeks");
-    alwaysExclude.add("cheekL");
-    alwaysExclude.add("cheekR");
   }
-  if (elevatedRed.includes("chin")) {
-    excluded.push("beard");
-    alwaysExclude.add("chin");
-  }
+  if (rednessAnalysis.elevatedZones.includes("chin")) excluded.push("beard");
 
   const stableWeights: Array<{ name: string; rgb: [number, number, number]; w: number }> = [];
-  const addStable = (name: string, w: number) => {
+  const skipCheeks =
+    rednessAnalysis.elevatedZones.includes("cheekL") ||
+    rednessAnalysis.elevatedZones.includes("cheekR");
+
+  for (const name of BASE_REGIONS) {
     const rgb = regionsCorrected[name];
-    if (!rgb || alwaysExclude.has(name)) return;
-    stableWeights.push({ name, rgb, w });
-  };
+    if (rgb) stableWeights.push({ name, rgb, w: name === "forehead" ? 0.34 : 0.22 });
+  }
+  if (!skipCheeks) {
+    for (const name of ["cheekL", "cheekR"] as const) {
+      const rgb = regionsCorrected[name];
+      if (rgb) stableWeights.push({ name, rgb, w: 0.05 });
+    }
+  }
+  const chinRgb = regionsCorrected.chin;
+  if (chinRgb && !rednessAnalysis.elevatedZones.includes("chin")) {
+    stableWeights.push({ name: "chin", rgb: chinRgb, w: 0.06 });
+  }
 
-  addStable("forehead", 0.32);
-  addStable("templeL", 0.18);
-  addStable("templeR", 0.18);
-  addStable("jawline", 0.14);
-  addStable("chin", 0.08);
-  if (!alwaysExclude.has("cheekL")) addStable("cheekL", 0.05);
-  if (!alwaysExclude.has("cheekR")) addStable("cheekR", 0.05);
-
-  let sampled: string[] = stableWeights.map((s) => s.name);
+  let sampled = stableWeights.map((s) => s.name);
   let aggregateRgb: [number, number, number];
 
   if (stableWeights.length >= 2) {
@@ -234,11 +237,13 @@ export function analyzeFromCalibration(calib: CalibrationInput): SkinProfile {
   }
 
   const { lightness } = rgbToHsl(aggregateRgb);
-  let skin_depth = classifySkinDepth(lightness, true);
-  const undertone = classifySkinUndertone(aggregateRgb, calib.lighting, elevatedRed.length > 0);
-
-  const redness_level = classifyRednessLevel(rednessByRegion, faceCorrected);
-  const surface_redness_regions = mapRednessRegions(elevatedRed);
+  const skin_depth = classifySkinDepth(lightness, true);
+  const undertone = classifySkinUndertone(
+    aggregateRgb,
+    calib.lighting,
+    rednessAnalysis.visible_pinkness,
+    rednessAnalysis.surface_redness
+  );
 
   let confidence = calib.confidence * (1 - wb.penalty);
   if (wb.status === "unreliable") confidence *= 0.65;
@@ -246,7 +251,6 @@ export function analyzeFromCalibration(calib: CalibrationInput): SkinProfile {
   if (stableWeights.length < 2) confidence *= 0.75;
 
   const lighting_quality = describeLightingQuality(calib, wb);
-
   const recommended_foundation_depth_range = depthRangeFor(skin_depth);
   const avoid_foundation_depths = avoidDepthsFor(skin_depth);
   const avoid_undertones =
@@ -259,14 +263,19 @@ export function analyzeFromCalibration(calib: CalibrationInput): SkinProfile {
   const reasons: string[] = [];
   if (wb.status === "unreliable") reasons.push("hvitbalanse_usikker");
   if (stableWeights.length < 2) reasons.push("fa_stable_regioner");
-  if (elevatedRed.length >= 2) reasons.push("surface_redness");
+  if (rednessAnalysis.redness_confidence < 0.45) reasons.push("redness_usikker");
   if ((calib.lighting?.warmthBias ?? 0) > 0.45) reasons.push("varmt_lys");
 
   const profile: SkinProfile = {
     skin_depth,
     undertone,
-    redness_level,
-    surface_redness_regions,
+    visible_pinkness: rednessAnalysis.visible_pinkness,
+    surface_redness: rednessAnalysis.surface_redness,
+    redness_type: rednessAnalysis.redness_type,
+    redness_regions: rednessAnalysis.redness_regions,
+    redness_confidence: rednessAnalysis.redness_confidence,
+    redness_level: rednessAnalysis.surface_redness,
+    surface_redness_regions: rednessAnalysis.redness_regions,
     white_reference_detected: wb.detected,
     white_balance_status: wb.status,
     lighting_quality,
@@ -286,8 +295,15 @@ export function analyzeFromCalibration(calib: CalibrationInput): SkinProfile {
       estimated_undertone: undertone,
       sampled_regions: sampled,
       excluded_regions: excluded,
-      redness_level,
-      white_balance_rgb: wb.detected ? calib.paperRgb : null,
+      base_skin_rgb_lab: rednessAnalysis.baseLab,
+      redness_zone_rgb_lab: rednessAnalysis.zoneLabs,
+      redness_delta_from_base: rednessAnalysis.deltas,
+      visible_pinkness: rednessAnalysis.visible_pinkness,
+      surface_redness: rednessAnalysis.surface_redness,
+      redness_type: rednessAnalysis.redness_type,
+      redness_regions: rednessAnalysis.redness_regions,
+      redness_confidence: rednessAnalysis.redness_confidence,
+      white_balance_status: wb.status,
       lighting_quality,
       confidence: profile.confidence,
       reason_for_low_confidence: reasons.length ? reasons.join(", ") : undefined,
@@ -296,6 +312,251 @@ export function analyzeFromCalibration(calib: CalibrationInput): SkinProfile {
   }
 
   return profile;
+}
+
+interface RelativeRednessResult {
+  visible_pinkness: Level;
+  surface_redness: Level;
+  redness_type: RednessType;
+  redness_regions: string[];
+  redness_confidence: number;
+  elevatedZones: string[];
+  baseLab: [number, number, number];
+  zoneLabs: Record<string, [number, number, number]>;
+  deltas: Record<string, number>;
+}
+
+function analyzeRelativeRedness(
+  regions: Record<string, [number, number, number] | null>,
+  faceRgb: [number, number, number],
+  lighting: CalibrationInput["lighting"],
+  wb: { status: WhiteBalanceStatus; penalty: number }
+): RelativeRednessResult {
+  const baseSamples: Array<{ rgb: [number, number, number]; w: number }> = [];
+  for (const name of BASE_REGIONS) {
+    const rgb = regions[name];
+    if (rgb) baseSamples.push({ rgb, w: name === "forehead" ? 0.4 : 0.2 });
+  }
+
+  const fallbackRgb = faceRgb;
+  const baseRgb =
+    baseSamples.length > 0
+      ? (weightedRgb(baseSamples) as [number, number, number])
+      : fallbackRgb;
+  const baseLab = rgbToLab(baseRgb);
+
+  const zoneLabs: Record<string, [number, number, number]> = {};
+  const deltas: Record<string, number> = {};
+  const elevatedZones: string[] = [];
+
+  const isLightBase = baseLab[0] > 62;
+  const thresholds = rednessThresholds(isLightBase);
+
+  for (const name of REDNESS_ZONE_KEYS) {
+    const rgb = regions[name];
+    if (!rgb) continue;
+    const lab = rgbToLab(rgb);
+    zoneLabs[name] = lab;
+    const delta = rednessDeltaFromBase(lab, baseLab);
+    deltas[name] = round2(delta);
+    if (delta >= thresholds.zoneElevated) elevatedZones.push(name);
+  }
+
+  const zoneDeltaVals = Object.values(deltas);
+  const maxDelta = zoneDeltaVals.length ? Math.max(...zoneDeltaVals) : 0;
+  const avgZoneDelta =
+    zoneDeltaVals.length > 0
+      ? zoneDeltaVals.reduce((a, b) => a + b, 0) / zoneDeltaVals.length
+      : 0;
+
+  const allLabs = [...baseSamples.map((s) => rgbToLab(s.rgb)), ...Object.values(zoneLabs)];
+  const aSpread =
+    allLabs.length >= 3
+      ? stdDev(allLabs.map((l) => l[1]))
+      : maxDelta;
+
+  const visible_pinkness = classifyVisiblePinkness(baseLab, isLightBase);
+  const { surface_redness, redness_regions, redness_type } = classifySurfaceRedness({
+    maxDelta,
+    avgZoneDelta,
+    aSpread,
+    elevatedZones,
+    visible_pinkness,
+    deltas,
+    thresholds,
+    isLightBase,
+  });
+
+  let redness_confidence = 0.85;
+  if (baseSamples.length < 2) redness_confidence -= 0.25;
+  if (wb.status === "unreliable") redness_confidence -= 0.35;
+  if ((lighting?.warmthBias ?? 0) > 0.4) redness_confidence -= 0.15;
+  if ((lighting?.warmthBias ?? 0) > 0.55) redness_confidence -= 0.1;
+  if ((lighting?.brightness ?? 0.5) < 0.45) redness_confidence -= 0.15;
+  if ((lighting?.sharpness ?? 0.5) < 0.3) redness_confidence -= 0.1;
+  redness_confidence = round2(clamp01(redness_confidence));
+
+  return {
+    visible_pinkness,
+    surface_redness,
+    redness_type,
+    redness_regions,
+    redness_confidence,
+    elevatedZones,
+    baseLab,
+    zoneLabs,
+    deltas,
+  };
+}
+
+function rednessThresholds(lightSkin: boolean) {
+  if (lightSkin) {
+    return {
+      zoneElevated: 11,
+      surfaceLow: 7,
+      surfaceMedium: 12,
+      surfaceHigh: 18,
+      evenPinkSpread: 5.5,
+    };
+  }
+  return {
+    zoneElevated: 8,
+    surfaceLow: 5,
+    surfaceMedium: 9,
+    surfaceHigh: 14,
+    evenPinkSpread: 4,
+  };
+}
+
+/** Deviation in Lab — a* weighted (red-green) */
+function rednessDeltaFromBase(
+  zone: [number, number, number],
+  base: [number, number, number]
+): number {
+  const da = zone[1] - base[1];
+  const db = zone[2] - base[2];
+  return Math.sqrt(da * da + db * db * 0.25);
+}
+
+function classifyVisiblePinkness(
+  baseLab: [number, number, number],
+  lightSkin: boolean
+): Level {
+  const a = baseLab[1];
+  const b = baseLab[2];
+  if (lightSkin) {
+    if (a < 6) return "none";
+    if (a < 9) return "low";
+    if (a < 13) return "medium";
+    return "high";
+  }
+  if (a < 8) return "none";
+  if (a < 11) return "low";
+  if (a < 15) return "medium";
+  return "high";
+}
+
+function classifySurfaceRedness(ctx: {
+  maxDelta: number;
+  avgZoneDelta: number;
+  aSpread: number;
+  elevatedZones: string[];
+  visible_pinkness: Level;
+  deltas: Record<string, number>;
+  thresholds: ReturnType<typeof rednessThresholds>;
+  isLightBase: boolean;
+}): {
+  surface_redness: Level;
+  redness_regions: string[];
+  redness_type: RednessType;
+} {
+  const {
+    maxDelta,
+    avgZoneDelta,
+    aSpread,
+    elevatedZones,
+    visible_pinkness,
+    deltas,
+    thresholds,
+    isLightBase,
+  } = ctx;
+
+  const redness_regions = mapRednessRegions(elevatedZones);
+
+  const evenPink =
+    aSpread <= thresholds.evenPinkSpread &&
+    maxDelta < thresholds.surfaceMedium &&
+    visible_pinkness !== "none";
+
+  if (evenPink || (maxDelta < thresholds.surfaceLow && elevatedZones.length === 0)) {
+    return {
+      surface_redness: maxDelta >= thresholds.surfaceLow * 0.85 ? "low" : "none",
+      redness_regions: [],
+      redness_type:
+        visible_pinkness === "none" ? "none" : "natural_pinkness",
+    };
+  }
+
+  if (maxDelta < thresholds.surfaceLow) {
+    return {
+      surface_redness: "none",
+      redness_regions: [],
+      redness_type: visible_pinkness === "none" ? "none" : "natural_pinkness",
+    };
+  }
+
+  let surface_redness: Level = "low";
+  if (maxDelta >= thresholds.surfaceHigh) surface_redness = "high";
+  else if (maxDelta >= thresholds.surfaceMedium) surface_redness = "medium";
+
+  const noseHigh = (deltas.nose ?? 0) >= thresholds.surfaceMedium;
+  const cheeksHigh =
+    (deltas.cheekL ?? 0) >= thresholds.surfaceMedium ||
+    (deltas.cheekR ?? 0) >= thresholds.surfaceMedium;
+  const central = noseHigh && cheeksHigh;
+
+  let redness_type: RednessType = "uncertain";
+  if (surface_redness === "low" && !central) {
+    redness_type = elevatedZones.length ? "flush" : "natural_pinkness";
+  } else if (central && surface_redness !== "low") {
+    redness_type =
+      surface_redness === "high" && isLightBase ? "rosacea_like" : "flush";
+  } else if (elevatedZones.length >= 2 && surface_redness !== "low") {
+    redness_type = "irritation";
+  } else if (elevatedZones.length === 1) {
+    redness_type = "flush";
+  }
+
+  return { surface_redness, redness_regions, redness_type };
+}
+
+function mapRednessRegions(elevated: string[]): string[] {
+  const out: string[] = [];
+  if (elevated.includes("nose")) out.push("nose");
+  if (elevated.includes("cheekL") || elevated.includes("cheekR"))
+    out.push("central_cheeks");
+  if (elevated.includes("chin")) out.push("chin");
+  return out;
+}
+
+function classifySkinUndertone(
+  rgb: [number, number, number],
+  lighting: CalibrationInput["lighting"],
+  visiblePinkness: Level,
+  surfaceRedness: Level
+): SkinUndertone {
+  const [r, g, b] = rgb;
+  const rb = r / Math.max(1, b);
+  const olive = g / Math.max(1, (r + b) / 2);
+  const warm = lighting?.warmthBias ?? 0;
+
+  if (olive > 1.03 && rb < 1.12) return "olive";
+  if (rb > 1.12 && warm < 0.4 && surfaceRedness === "none") return "warm";
+  if (rb > 1.08 && warm < 0.35 && surfaceRedness !== "high") return "neutral_warm";
+  if (rb < 1.0 || visiblePinkness === "high") return "cool";
+  if (rb < 1.06 || visiblePinkness === "medium") return "neutral_cool";
+  if (warm > 0.5) return "neutral";
+  return "neutral";
 }
 
 async function analyzeWithOpenAI(
@@ -318,7 +579,7 @@ async function analyzeWithOpenAI(
     body: JSON.stringify({
       model: process.env.OPENAI_VISION_MODEL ?? "gpt-4o-mini",
       response_format: { type: "json_object" },
-      max_tokens: 800,
+      max_tokens: 900,
       messages: [
         { role: "system", content: SKIN_ANALYSIS_PROMPT },
         {
@@ -326,7 +587,7 @@ async function analyzeWithOpenAI(
           content: [
             {
               type: "text",
-              text: `Analyze this face for foundation shade. Client RGB hints (white-balanced on device): ${regionHint}`,
+              text: `Analyze foundation-relevant skin tone. Client hints: ${regionHint}`,
             },
             {
               type: "image_url",
@@ -356,23 +617,31 @@ async function analyzeWithOpenAI(
 
 function mergeProfiles(heuristic: SkinProfile, vision: Partial<SkinProfile>): SkinProfile {
   const vConf = vision.confidence ?? 0;
-  const useVision =
-    vConf >= 0.55 &&
-    vision.skin_depth &&
-    vision.undertone;
+  const useVision = vConf >= 0.55 && vision.skin_depth && vision.undertone;
 
   const skin_depth = (useVision ? vision.skin_depth : heuristic.skin_depth)!;
   const undertone = (useVision ? vision.undertone : heuristic.undertone)!;
+
+  const surface_redness =
+    vision.surface_redness ?? vision.redness_level ?? heuristic.surface_redness;
+  const visible_pinkness = vision.visible_pinkness ?? heuristic.visible_pinkness;
 
   const merged: SkinProfile = {
     ...heuristic,
     skin_depth,
     undertone,
-    redness_level: vision.redness_level ?? heuristic.redness_level,
+    visible_pinkness,
+    surface_redness,
+    redness_type: vision.redness_type ?? heuristic.redness_type,
+    redness_regions: vision.redness_regions?.length
+      ? vision.redness_regions
+      : heuristic.redness_regions,
+    redness_confidence: round2(
+      vision.redness_confidence ?? heuristic.redness_confidence
+    ),
+    redness_level: surface_redness,
     surface_redness_regions:
-      vision.surface_redness_regions?.length
-        ? vision.surface_redness_regions
-        : heuristic.surface_redness_regions,
+      vision.redness_regions ?? vision.surface_redness_regions ?? heuristic.surface_redness_regions,
     white_reference_detected:
       vision.white_reference_detected ?? heuristic.white_reference_detected,
     white_balance_status:
@@ -393,7 +662,9 @@ function mergeProfiles(heuristic: SkinProfile, vision: Partial<SkinProfile>): Sk
         ? vision.avoid_foundation_depths
         : avoidDepthsFor(skin_depth),
     avoid_undertones: vision.avoid_undertones ?? heuristic.avoid_undertones,
-    confidence: round2(Math.max(heuristic.confidence * 0.4, vConf * 0.6 + heuristic.confidence * 0.4)),
+    confidence: round2(
+      Math.max(heuristic.confidence * 0.4, vConf * 0.6 + heuristic.confidence * 0.4)
+    ),
     legacy_depth: toLegacyDepth(skin_depth),
     legacy_undertone: toLegacyUndertone(undertone),
   };
@@ -403,10 +674,9 @@ function mergeProfiles(heuristic: SkinProfile, vision: Partial<SkinProfile>): Sk
       ...heuristic.debug!,
       estimated_depth: skin_depth,
       estimated_undertone: undertone,
+      visible_pinkness,
+      surface_redness,
       source: useVision ? "merged" : "heuristic",
-      reason_for_low_confidence: useVision
-        ? undefined
-        : heuristic.debug?.reason_for_low_confidence,
     };
   }
 
@@ -431,10 +701,24 @@ function normalizeOpenAIJson(raw: Record<string, unknown>): Partial<SkinProfile>
     ? (ut as SkinUndertone)
     : undefined;
 
+  const surface =
+    (raw.surface_redness as Level) ??
+    (raw.redness_level as Level);
+
   return {
     skin_depth: validDepth,
     undertone: validUt,
-    redness_level: raw.redness_level as RednessLevel,
+    visible_pinkness: raw.visible_pinkness as Level,
+    surface_redness: surface,
+    redness_type: raw.redness_type as RednessType,
+    redness_regions: Array.isArray(raw.redness_regions)
+      ? (raw.redness_regions as string[])
+      : Array.isArray(raw.surface_redness_regions)
+        ? (raw.surface_redness_regions as string[])
+        : [],
+    redness_confidence:
+      typeof raw.redness_confidence === "number" ? raw.redness_confidence : undefined,
+    redness_level: surface,
     surface_redness_regions: Array.isArray(raw.surface_redness_regions)
       ? (raw.surface_redness_regions as string[])
       : [],
@@ -505,49 +789,6 @@ function classifySkinDepth(lightness: number, conservative: boolean): SkinDepth 
   return "deep";
 }
 
-function classifySkinUndertone(
-  rgb: [number, number, number],
-  lighting: CalibrationInput["lighting"],
-  hasSurfaceRedness: boolean
-): SkinUndertone {
-  const [r, g, b] = rgb;
-  const rb = r / Math.max(1, b);
-  const olive = g / Math.max(1, (r + b) / 2);
-  const warm = lighting?.warmthBias ?? 0;
-
-  if (olive > 1.03 && rb < 1.12) return "olive";
-  if (rb > 1.12 && warm < 0.4 && !hasSurfaceRedness) return "warm";
-  if (rb > 1.08 && warm < 0.35) return "neutral_warm";
-  if (rb < 1.0) return "cool";
-  if (rb < 1.05) return "neutral_cool";
-  if (warm > 0.45 || hasSurfaceRedness) {
-    return "neutral_cool";
-  }
-  return "neutral";
-}
-
-function classifyRednessLevel(
-  byRegion: Record<string, number>,
-  face: [number, number, number]
-): RednessLevel {
-  const vals = Object.values(byRegion);
-  const faceVal = rednessIndex(face);
-  const max = vals.length ? Math.max(...vals, faceVal) : faceVal;
-  if (max < 0.3) return "none";
-  if (max < 0.45) return "low";
-  if (max < 0.62) return "medium";
-  return "high";
-}
-
-function mapRednessRegions(elevated: string[]): string[] {
-  const out: string[] = [];
-  if (elevated.includes("nose")) out.push("nose");
-  if (elevated.includes("cheekL") || elevated.includes("cheekR"))
-    out.push("central_cheeks");
-  if (elevated.includes("chin")) out.push("chin");
-  return out;
-}
-
 function depthRangeFor(depth: SkinDepth): SkinDepth[] {
   const i = DEPTH_ORDER.indexOf(depth);
   const lo = DEPTH_ORDER[Math.max(0, i - 1)];
@@ -602,6 +843,11 @@ export function depthRankExtended(d: string): number {
   return map[d] ?? 2;
 }
 
+/** Map surface_redness to 0–100 priority score for skincare UI */
+export function surfaceRednessToScore(level: Level): number {
+  return { none: 22, low: 38, medium: 58, high: 76 }[level];
+}
+
 function computeGains(paperRgb: [number, number, number]): [number, number, number] {
   const [r, g, b] = paperRgb;
   const target = Math.max(r, g, b, 1);
@@ -619,6 +865,15 @@ function applyWB(
   ];
 }
 
+function weightedRgb(samples: Array<{ rgb: [number, number, number]; w: number }>) {
+  const tw = samples.reduce((s, x) => s + x.w, 0);
+  return [
+    samples.reduce((s, x) => s + x.rgb[0] * x.w, 0) / tw,
+    samples.reduce((s, x) => s + x.rgb[1] * x.w, 0) / tw,
+    samples.reduce((s, x) => s + x.rgb[2] * x.w, 0) / tw,
+  ] as [number, number, number];
+}
+
 function rgbToHsl([r, g, b]: [number, number, number]) {
   const rn = r / 255,
     gn = g / 255,
@@ -634,13 +889,36 @@ function rgbToHsl([r, g, b]: [number, number, number]) {
   return { lightness: l, saturation: s };
 }
 
-function rednessIndex(rgb: [number, number, number]): number {
-  const [r, g, b] = rgb;
-  const rbRatio = r / Math.max(1, b);
-  const rgGap = (r - g) / Math.max(1, r);
-  const fromRb = clamp01((rbRatio - 1.05) / 0.55);
-  const fromRg = clamp01(rgGap / 0.25);
-  return clamp01(0.5 * fromRb + 0.5 * fromRg);
+function rgbToLab(rgb: [number, number, number]): [number, number, number] {
+  let r = rgb[0] / 255;
+  let g = rgb[1] / 255;
+  let b = rgb[2] / 255;
+  const lin = (c: number) =>
+    c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  r = lin(r);
+  g = lin(g);
+  b = lin(b);
+  let x = r * 0.4124564 + g * 0.3575761 + b * 0.1804375;
+  let y = r * 0.2126729 + g * 0.7151522 + b * 0.072175;
+  let z = r * 0.0193339 + g * 0.119192 + b * 0.9503041;
+  x /= 0.95047;
+  y /= 1.0;
+  z /= 1.08883;
+  const f = (t: number) =>
+    t > 0.008856 ? Math.pow(t, 1 / 3) : 7.787 * t + 16 / 116;
+  const fx = f(x);
+  const fy = f(y);
+  const fz = f(z);
+  const L = 116 * fy - 16;
+  const a = 500 * (fx - fy);
+  const labB = 200 * (fy - fz);
+  return [L, a, labB];
+}
+
+function stdDev(vals: number[]): number {
+  if (vals.length < 2) return 0;
+  const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+  return Math.sqrt(vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length);
 }
 
 function clamp01(n: number): number {

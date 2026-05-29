@@ -157,8 +157,9 @@ export function scoreShade(
     }
   }
 
+  const surfaceRed = sig.surfaceRedness ?? sig.rednessLevel;
   if (
-    (sig.rednessLevel === "medium" || sig.rednessLevel === "high") &&
+    (surfaceRed === "medium" || surfaceRed === "high") &&
     undertone === "warm" &&
     (userUt === "cool" || userUt === "neutral")
   ) {

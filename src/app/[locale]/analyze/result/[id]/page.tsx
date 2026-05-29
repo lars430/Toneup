@@ -4,6 +4,7 @@ import { createServer } from "@/lib/supabase";
 import BottomNav from "@/components/BottomNav";
 import { concernAdvice, foundationKeywords } from "@/engine/adapters/internal";
 import type { Undertone } from "@/engine/types";
+import AnalysisPrecision from "./_components/AnalysisPrecision";
 
 type ScoreKey = "redness" | "glow" | "evenness" | "dryness";
 type ConfidenceLevel = "high" | "medium" | "medium-low" | "low";
@@ -226,6 +227,9 @@ export default async function AnalysisResultPage({
             Tallene er relative prioriteringssignaler, ikke kliniske målinger.
           </p>
         </section>
+
+        {/* Presiser analysen — 3 hurtigspørsmål */}
+        <AnalysisPrecision />
 
         {/* Lighting note */}
         {lighting && lighting.notes && lighting.notes.length > 0 && (

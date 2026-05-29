@@ -20,6 +20,9 @@ export interface FitSignal {
   avoidFoundationDepths?: string[];
   avoidUndertones?: string[];
   rednessLevel?: string | null;
+  /** Surface flush only — not visible_pinkness */
+  surfaceRedness?: string | null;
+  visiblePinkness?: string | null;
   correctedSkinHex?: string | null;
   /** 0..5, avg of last 7 logs */
   avgRedness?: number;
@@ -235,7 +238,13 @@ export function buildSignal(
     recommendedDepthRange: skinProfile?.recommended_foundation_depth_range,
     avoidFoundationDepths: skinProfile?.avoid_foundation_depths,
     avoidUndertones: skinProfile?.avoid_undertones,
-    rednessLevel: skinProfile?.redness_level ?? inner?.redness_level,
+    rednessLevel:
+      skinProfile?.surface_redness ??
+      skinProfile?.redness_level ??
+      inner?.surface_redness ??
+      inner?.redness_level,
+    surfaceRedness: skinProfile?.surface_redness ?? inner?.surface_redness,
+    visiblePinkness: skinProfile?.visible_pinkness ?? inner?.visible_pinkness,
     correctedSkinHex,
     concerns,
     avgRedness: avg("redness"),

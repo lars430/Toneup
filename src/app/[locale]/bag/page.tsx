@@ -227,9 +227,14 @@ export default async function BagPage({
         {/* "Passer i dag" section — only on "all" tab */}
         {activeTab === "all" && greatToday.length > 0 && (
           <section className="mb-7">
-            <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-3">
-              Passer huden din i dag
+            <div className="flex items-baseline justify-between mb-1">
+              <div className="text-[10px] uppercase tracking-[0.4em] text-mute">
+                Bruk dette i dag
+              </div>
             </div>
+            <p className="font-display italic text-xs text-soft-ink mb-3">
+              Disse passer hudstatus din nå.
+            </p>
             <div className="space-y-2">
               {greatToday.slice(0, 3).map((item: any) => (
                 <ProductCard
@@ -244,12 +249,15 @@ export default async function BagPage({
           </section>
         )}
 
-        {/* "Pause i dag" — flagged items */}
+        {/* "Hold igjen i dag" — flagged items */}
         {activeTab === "all" && watchToday.length > 0 && (
           <section className="mb-7">
-            <div className="text-[10px] uppercase tracking-[0.4em] text-accent mb-3">
-              Pause i dag
+            <div className="text-[10px] uppercase tracking-[0.4em] text-accent mb-1">
+              Hold igjen i dag
             </div>
+            <p className="font-display italic text-xs text-soft-ink mb-3">
+              Disse passer ikke like godt akkurat nå.
+            </p>
             <div className="space-y-2">
               {watchToday.slice(0, 2).map((item: any) => (
                 <ProductCard
@@ -383,16 +391,14 @@ export default async function BagPage({
 
 function FitTag({ fit }: { fit?: FitResult }) {
   if (!fit || fit.verdict === "neutral" || !fit.reason) return null;
-  const styles: Record<string, string> = {
-    great: "text-accent",
-    good: "text-accent",
-    watch: "text-accent",
-    neutral: "text-mute",
-  };
+  const isWatch = fit.verdict === "watch";
   return (
-    <div className={`text-[10px] tracking-wider mt-1 ${styles[fit.verdict]}`}>
-      {fit.verdict === "watch" ? "Vær oppmerksom: " : ""}
-      {fit.reason}
+    <div
+      className={`text-[10px] tracking-wider mt-1 ${
+        isWatch ? "text-accent" : "text-accent/80"
+      }`}
+    >
+      {isWatch ? `Pause: ${fit.reason}` : fit.reason}
     </div>
   );
 }

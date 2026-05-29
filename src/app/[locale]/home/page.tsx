@@ -9,6 +9,7 @@ import {
   todayNeed,
   todayAvoid,
 } from "@/lib/fit-now";
+import QuickCheck from "./_components/QuickCheck";
 
 export default async function HomePage({
   params: { locale },
@@ -65,7 +66,6 @@ export default async function HomePage({
   const needHeadline = todayNeed(sig);
   const avoidList = todayAvoid(sig);
 
-  // Score bag → today's top hits
   const scored = (bagItems ?? [])
     .map((item) => ({ item, fit: scoreBagItem(item, sig) }))
     .filter((s) => s.fit.verdict === "great" || s.fit.verdict === "good")
@@ -80,7 +80,7 @@ export default async function HomePage({
     <main className="min-h-dvh bg-bone pb-28">
       <div className="max-w-md mx-auto px-6 pt-10">
 
-        {/* ── Quiet header ─────────────────────────────────────────── */}
+        {/* ── Header ──────────────────────────────────────────────── */}
         <header className="mb-8">
           <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-3">
             {greeting} · {seasonLabel(season, locale)}
@@ -90,40 +90,76 @@ export default async function HomePage({
           </h1>
         </header>
 
-        {/* ── Today: status + need ─────────────────────────────────── */}
-        <section className="mb-4">
-          <div className="bg-ink text-bone px-5 py-5">
-            <div className="text-[10px] uppercase tracking-[0.32em] text-bone/50 mb-2">
-              I dag
-            </div>
-            <div className="flex items-baseline justify-between gap-4 mb-1">
-              <div className="font-display text-3xl leading-none">
-                {loggedToday ? feelLabel(lastLog.feel_label) : "Ikke logget"}
+        {/* ── Status / primær CTA ─────────────────────────────────── */}
+        {!hasAnalysis ? (
+          /* Ingen analyse — analyse er primærhandlingen */
+          <section className="mb-4">
+            <Link
+              href={`/${locale}/analyze/calibrate`}
+              className="block bg-ink text-bone px-5 py-7 hover:bg-soft-ink transition-colors"
+            >
+              <div className="text-[10px] uppercase tracking-[0.32em] text-bone/50 mb-3">
+                Kom i gang
               </div>
-              <div className="text-right">
-                <div className="text-[10px] uppercase tracking-[0.28em] text-bone/50 mb-1">
-                  Trenger
+              <div className="font-display text-3xl leading-snug mb-2">
+                Ta din første analyse
+              </div>
+              <div className="font-display italic text-sm text-bone/60">
+                Nøyaktig fargelesning av huden din — tar 2 minutter →
+              </div>
+            </Link>
+          </section>
+        ) : loggedToday ? (
+          /* Analyse + logget i dag — vis status */
+          <section className="mb-4">
+            <div className="bg-ink text-bone px-5 py-5">
+              <div className="text-[10px] uppercase tracking-[0.32em] text-bone/50 mb-2">
+                I dag
+              </div>
+              <div className="flex items-baseline justify-between gap-4 mb-1">
+                <div className="font-display text-3xl leading-none">
+                  {feelLabel(lastLog.feel_label)}
                 </div>
-                <div className="font-display italic text-base">{needHeadline}</div>
+                <div className="text-right">
+                  <div className="text-[10px] uppercase tracking-[0.28em] text-bone/50 mb-1">
+                    Trenger
+                  </div>
+                  <div className="font-display italic text-base">{needHeadline}</div>
+                </div>
               </div>
+              {lastLog.tags?.length > 0 && (
+                <div className="font-display italic text-xs text-bone/60 mt-1">
+                  {lastLog.tags.slice(0, 3).map(tagLabel).join(" · ")}
+                </div>
+              )}
             </div>
-            {!loggedToday && (
-              <Link
-                href={`/${locale}/skin-log`}
-                className="inline-block mt-3 text-[10px] uppercase tracking-[0.32em] text-bone/80 underline underline-offset-4"
-              >
-                Logg huden nå →
-              </Link>
-            )}
-            {loggedToday && lastLog.tags?.length > 0 && (
-              <div className="font-display italic text-xs text-bone/60 mt-1">
-                {lastLog.tags.slice(0, 3).map(tagLabel).join(" · ")}
+          </section>
+        ) : (
+          /* Analyse finnes, ikke logget i dag — vis behovet + QuickCheck */
+          <section className="mb-4">
+            <div className="bg-ink text-bone px-5 py-5">
+              <div className="text-[10px] uppercase tracking-[0.32em] text-bone/50 mb-2">
+                I dag
               </div>
-            )}
-          </div>
-        </section>
+              <div className="flex items-baseline justify-between gap-4">
+                <div className="font-display text-3xl leading-none">
+                  {needHeadline}
+                </div>
+                <div className="text-right">
+                  <div className="text-[10px] uppercase tracking-[0.28em] text-bone/50 mb-1">
+                    Basert på
+                  </div>
+                  <div className="font-display italic text-sm text-bone/60">
+                    {formatRelative(lastAnalysis.taken_at)}
+                  </div>
+                </div>
+              </div>
+              <QuickCheck locale={locale} />
+            </div>
+          </section>
+        )}
 
-        {/* ── Avoid today ─────────────────────────────────────────── */}
+        {/* ── Unngå i dag ─────────────────────────────────────────── */}
         {avoidList.length > 0 && (
           <section className="mb-4">
             <div className="border border-stone/40 px-5 py-4">
@@ -142,7 +178,7 @@ export default async function HomePage({
           <section className="mb-4">
             <div className="flex items-baseline justify-between mb-3">
               <div className="text-[10px] uppercase tracking-[0.4em] text-mute">
-                Passer huden din i dag
+                Passer nå
               </div>
               <Link
                 href={`/${locale}/bag`}
@@ -193,7 +229,7 @@ export default async function HomePage({
           </section>
         )}
 
-        {/* ── Match CTAs: Shade + Routine ─────────────────────── */}
+        {/* ── Match CTAs: Shade + Routine ─────────────────────────── */}
         <section className="mb-4 space-y-3">
           <Link
             href={`/${locale}/shade-match`}
@@ -248,8 +284,8 @@ export default async function HomePage({
           </Link>
         </section>
 
-        {/* ── Analysis card ─────────────────────────────────────── */}
-        {hasAnalysis ? (
+        {/* ── Analyse-kort (bare når analyse finnes) ──────────────── */}
+        {hasAnalysis && (
           <section className="mb-4">
             <Link
               href={`/${locale}/analyze/result/${lastAnalysis.id}`}
@@ -272,26 +308,9 @@ export default async function HomePage({
               </div>
             </Link>
           </section>
-        ) : (
-          <section className="mb-4">
-            <Link
-              href={`/${locale}/analyze/calibrate`}
-              className="block border border-ink px-5 py-5"
-            >
-              <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-2">
-                Ritual N° 01
-              </div>
-              <div className="font-display text-xl mb-1">
-                Start med din palett
-              </div>
-              <div className="font-display italic text-xs text-soft-ink">
-                Nøyaktig fargelesning av huden din
-              </div>
-            </Link>
-          </section>
         )}
 
-        {/* ── Ask advisor CTA ────────────────────────────────────── */}
+        {/* ── Rådgiver CTA ────────────────────────────────────────── */}
         <section className="mb-8">
           <Link
             href={`/${locale}/ask`}
@@ -302,14 +321,16 @@ export default async function HomePage({
                 {isPro ? "Rådgiveren · Pro" : "Rådgiveren"}
               </div>
               <div className="font-display text-base">
-                Spør om hud, sminke eller produkter
+                {hasAnalysis
+                  ? "Spør om produktene, shades og rutinen din"
+                  : "Spør om hud, sminke eller produkter"}
               </div>
             </div>
             <span className="text-mute text-base">→</span>
           </Link>
         </section>
 
-        {/* ── Pro upsell ─────────────────────────────────────────── */}
+        {/* ── Pro upsell ──────────────────────────────────────────── */}
         {!isPro && hasAnalysis && (
           <section className="border border-ink px-6 py-7 text-center mb-8">
             <div className="text-[10px] uppercase tracking-[0.4em] text-accent mb-3">

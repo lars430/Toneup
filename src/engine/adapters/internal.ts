@@ -36,6 +36,7 @@ import type {
 import type { ProductCategory } from "@/types/domain";
 import {
   analyzeFromCalibration,
+  surfaceRednessToScore,
   type CalibrationInput,
   type SkinProfile,
 } from "@/lib/skin-profile";
@@ -102,11 +103,11 @@ export class InternalAdapter implements AnalysisProvider {
       confidence: profileConfidenceLevel(skinProfile.confidence),
     };
 
-    // ── Redness — region-aware (separate from undertone/depth) ──────
-    const redness = analyzeRedness(corrected, regionsCorrected);
-    if (skinProfile.redness_level === "high") redness.score = Math.max(redness.score, 75);
-    else if (skinProfile.redness_level === "medium")
-      redness.score = Math.max(redness.score, 55);
+    // ── Redness — from relative surface_redness only (not pink undertone) ──
+    const redness = analyzeRedness(corrected, regionsCorrected, skinProfile);
+    redness.score = surfaceRednessToScore(skinProfile.surface_redness);
+    redness.confidenceMul = skinProfile.redness_confidence;
+    redness.rationale = rednessRationale(skinProfile);
 
     // ── Glow / radiance ─────────────────────────────────────────────
     const glowRaw = clamp01(lightness * 0.65 + saturation * 0.35);
@@ -158,7 +159,8 @@ export class InternalAdapter implements AnalysisProvider {
       skinProfile.skin_depth,
       undertoneResult.label,
       redness,
-      lightingQuality
+      lightingQuality,
+      skinProfile
     );
     const interpretations = buildInterpretations(scores, redness, undertoneResult, confidence);
     const recommendations = buildRecommendations(scores, redness, undertoneResult);
@@ -211,7 +213,11 @@ export class InternalAdapter implements AnalysisProvider {
         depth,
         skin_depth: skinProfile.skin_depth,
         skinProfile,
-        redness_level: skinProfile.redness_level,
+        redness_level: skinProfile.surface_redness,
+        visible_pinkness: skinProfile.visible_pinkness,
+        surface_redness: skinProfile.surface_redness,
+        redness_type: skinProfile.redness_type,
+        redness_confidence: skinProfile.redness_confidence,
         rednessPattern: redness.pattern,
         rednessByRegion: redness.byRegion,
       },
@@ -266,9 +272,26 @@ interface RednessAnalysis {
   rationale: string;
 }
 
+function rednessRationale(profile: SkinProfile): string {
+  if (profile.surface_redness === "none" || profile.surface_redness === "low") {
+    if (profile.visible_pinkness !== "none") {
+      return "Naturlig rosa/kjølig undertone — ikke målt som overflaterødhet";
+    }
+    return "Lav overflaterødhet relativt til basehud (panne/tinning/kjeve)";
+  }
+  if (profile.redness_type === "natural_pinkness") {
+    return "Jevnt rosa preg uten tydelige røde soner";
+  }
+  if (profile.redness_regions.length) {
+    return `Overflaterødhet i ${profile.redness_regions.join(", ")} — sterkere enn basehud`;
+  }
+  return "Forhøyet overflaterødhet i utvalgte soner";
+}
+
 function analyzeRedness(
   faceRgb: [number, number, number],
-  byRegion: Record<string, [number, number, number] | null>
+  byRegion: Record<string, [number, number, number] | null>,
+  profile?: SkinProfile
 ): RednessAnalysis {
   const facewide = rednessIndex(faceRgb);
 
@@ -287,12 +310,48 @@ function analyzeRedness(
   let confidenceMul = 0.85;
   let rationale = "Mål basert på hele ansiktsområdet";
 
+  if (profile?.redness_regions?.length) {
+    confidenceMul = profile.redness_confidence;
+    const elevated = profile.redness_regions.flatMap((r) => {
+      if (r === "central_cheeks") return ["cheekL", "cheekR"];
+      if (r === "nose") return ["nose"];
+      if (r === "chin") return ["chin"];
+      return [];
+    });
+    const max =
+      elevated.length > 0
+        ? Math.max(...elevated.map((k) => perRegion[k] ?? 0))
+        : facewide;
+    const avg = values.reduce((s, v) => s + v, 0) / Math.max(1, values.length);
+    score = surfaceRednessToScore(profile.surface_redness);
+    if (elevated.includes("nose") && (elevated.includes("cheekL") || elevated.includes("cheekR"))) {
+      pattern = "central";
+    } else if (elevated.includes("cheekL") || elevated.includes("cheekR")) {
+      pattern = "cheeks";
+    } else if (elevated.length <= 1) {
+      pattern = "local";
+    } else {
+      pattern = "diffuse";
+    }
+    regions = elevated;
+    rationale = rednessRationale(profile);
+    return {
+      score: Math.min(100, score),
+      severity: score / 100,
+      pattern,
+      byRegion: perRegion,
+      regions,
+      confidenceMul,
+      rationale,
+    };
+  }
+
   if (haveRegions) {
     confidenceMul = 1.0;
     const avg = values.reduce((s, v) => s + v, 0) / values.length;
     const max = Math.max(...values);
     const elevated = Object.entries(perRegion).filter(
-      ([, v]) => v >= 0.5 || v >= avg + 0.15
+      ([, v]) => v >= 0.58 || v >= avg + 0.2
     ).map(([k]) => k);
 
     if (max < 0.35) {
@@ -545,13 +604,24 @@ function buildObservations(
   depth: string,
   undertone: Undertone,
   redness: RednessAnalysis,
-  lighting: NonNullable<SkinAnalysisResult["lightingQuality"]>
+  lighting: NonNullable<SkinAnalysisResult["lightingQuality"]>,
+  profile?: SkinProfile
 ): string[] {
   const out: string[] = [];
 
   out.push(
     `Hudtonen fremstår ${depthLabel(depth)} med ${undertoneShort(undertone)} undertone`
   );
+
+  if (profile?.visible_pinkness && profile.visible_pinkness !== "none" && profile.surface_redness !== "high") {
+    if (profile.surface_redness === "none" || profile.surface_redness === "low") {
+      out.push(
+        profile.visible_pinkness === "medium" || profile.visible_pinkness === "high"
+          ? "Naturlig rosa/kjølig preg i huden — ikke det samme som overflaterødhet"
+          : "Litt rosa undertone synlig — vanlig på lys hud"
+      );
+    }
+  }
 
   if (redness.pattern === "diffuse") {
     out.push("Forhøyet rødhet sees over store deler av ansiktet");
@@ -562,7 +632,7 @@ function buildObservations(
   } else if (redness.pattern === "local" && redness.regions.length) {
     out.push(`Lokal rødhet i ${redness.regions.map(regionLabel).join(" og ")}`);
   } else if (redness.pattern === "none") {
-    out.push("Lav generell rødhet — hudtonen er stort sett jevn");
+    out.push("Lav overflaterødhet — jevn basehud uten tydelige røde soner");
   }
 
   if (lighting.warmthBias > 0.4) {
@@ -619,7 +689,7 @@ function buildRecommendations(
   const out: string[] = [];
 
   // ── Redness — graded by pattern + severity ──────────────────────
-  if (scores.redness >= 60) {
+  if (scores.redness >= 60 && redness.pattern !== "none") {
     if (redness.pattern === "diffuse") {
       out.push(
         "Pause aktive syrer og retinol mens rødheten er høy — barrieren trenger ro"

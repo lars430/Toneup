@@ -5,47 +5,63 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 const SKIN_TYPES = [
-  { key: "dry", label: "Tørr" },
-  { key: "oily", label: "Fet" },
+  { key: "dry",         label: "Tørr" },
+  { key: "oily",        label: "Fet" },
   { key: "combination", label: "Kombinert" },
-  { key: "normal", label: "Normal" },
-  { key: "sensitive", label: "Sensitiv" },
-  { key: "unknown", label: "Vet ikke" },
+  { key: "normal",      label: "Normal" },
+  { key: "sensitive",   label: "Sensitiv" },
+  { key: "unknown",     label: "Vet ikke" },
 ];
 
 const SKIN_GOALS = [
-  { key: "less_dryness", label: "Mindre tørrhet" },
-  { key: "glow", label: "Glød" },
-  { key: "less_acne", label: "Mindre akne" },
-  { key: "even_tone", label: "Jevnere hudtone" },
+  { key: "less_dryness",     label: "Mindre tørrhet" },
+  { key: "glow",             label: "Glød" },
+  { key: "less_acne",        label: "Mindre akne" },
+  { key: "even_tone",        label: "Jevnere hudtone" },
   { key: "less_sensitivity", label: "Mindre sensitivitet" },
-  { key: "anti_aging", label: "Forebygge aldring" },
-  { key: "pore_minimizing", label: "Mindre porer" },
+  { key: "anti_aging",       label: "Forebygge aldring" },
+  { key: "pore_minimizing",  label: "Mindre porer" },
 ];
 
 const HELP_WITH = [
-  { key: "skincare", label: "Hudpleie" },
+  { key: "skincare",  label: "Hudpleie" },
   { key: "foundation", label: "Foundation" },
   { key: "concealer", label: "Concealer" },
-  { key: "blush", label: "Blush" },
-  { key: "contour", label: "Contour" },
-  { key: "lip", label: "Lepper" },
-  { key: "eye", label: "Øyne" },
+  { key: "blush",     label: "Blush" },
+  { key: "contour",   label: "Contour" },
+  { key: "lip",       label: "Lepper" },
+  { key: "eye",       label: "Øyne" },
 ];
 
 const LIFE_PHASES = [
-  { key: "none", label: "Ingen" },
+  { key: "none",            label: "Ingen" },
   { key: "menstrual_cycle", label: "Syklussporing" },
-  { key: "pregnancy", label: "Gravid" },
-  { key: "breastfeeding", label: "Ammer" },
-  { key: "menopause", label: "Overgangsalder" },
+  { key: "pregnancy",       label: "Gravid" },
+  { key: "breastfeeding",   label: "Ammer" },
+  { key: "menopause",       label: "Overgangsalder" },
 ];
 
 const BUDGETS = [
-  { key: "budget", label: "Rimelig" },
-  { key: "mid", label: "Mellompris" },
+  { key: "budget",  label: "Rimelig" },
+  { key: "mid",     label: "Mellompris" },
   { key: "premium", label: "Premium" },
-  { key: "luxury", label: "Luksus" },
+  { key: "luxury",  label: "Luksus" },
+];
+
+const UNDERTONES = [
+  { key: "unknown", label: "Vet ikke" },
+  { key: "warm",    label: "Varm" },
+  { key: "cool",    label: "Kjølig" },
+  { key: "neutral", label: "Nøytral" },
+];
+
+const DEPTHS = [
+  { key: "unknown", label: "Vet ikke" },
+  { key: "fair",    label: "Lys" },
+  { key: "light",   label: "Lys-med." },
+  { key: "medium",  label: "Medium" },
+  { key: "tan",     label: "Tan" },
+  { key: "deep",    label: "Dyp" },
 ];
 
 export default function ProfileForm({
@@ -66,6 +82,12 @@ export default function ProfileForm({
   const [budget, setBudget] = useState<string>(profile?.preferences?.budget ?? "mid");
   const [fragranceFree, setFragranceFree] = useState<boolean>(profile?.preferences?.fragrance_free ?? false);
   const [vegan, setVegan] = useState<boolean>(profile?.preferences?.vegan ?? false);
+  const [manualUndertone, setManualUndertone] = useState<string>(
+    profile?.preferences?.manual_undertone ?? "unknown"
+  );
+  const [manualDepth, setManualDepth] = useState<string>(
+    profile?.preferences?.manual_depth ?? "unknown"
+  );
 
   function toggleGoal(key: string) {
     setSkinGoals((prev) =>
@@ -89,7 +111,13 @@ export default function ProfileForm({
         skin_goals: skinGoals,
         help_with: helpWith,
         life_phase: lifePhase,
-        preferences: { budget, fragrance_free: fragranceFree, vegan },
+        preferences: {
+          budget,
+          fragrance_free: fragranceFree,
+          vegan,
+          manual_undertone: manualUndertone,
+          manual_depth: manualDepth,
+        },
       }),
     });
     setSaving(false);
@@ -101,18 +129,84 @@ export default function ProfileForm({
   }
 
   return (
-    <div className="max-w-md mx-auto px-6 pt-10">
+    <div className="max-w-md mx-auto px-6 pt-10 pb-16">
       <header className="flex items-center gap-4 mb-9">
-        <Link href={`/${locale}/me`} className="text-[10px] uppercase tracking-[0.32em] text-soft-ink">←</Link>
+        <Link
+          href={`/${locale}/me`}
+          className="text-[10px] uppercase tracking-[0.32em] text-soft-ink"
+        >
+          ←
+        </Link>
         <div>
-          <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-1">Innstillinger</div>
-          <h1 className="font-display text-3xl leading-tight tracking-wide2">Profil og preferanser</h1>
+          <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-1">
+            Innstillinger
+          </div>
+          <h1 className="font-display text-3xl leading-tight tracking-wide2">
+            Profil og preferanser
+          </h1>
         </div>
       </header>
 
+      {/* Min fargeprofil */}
+      <section className="mb-8">
+        <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-1">
+          Min fargeprofil
+        </div>
+        <p className="font-display italic text-xs text-soft-ink mb-5 leading-relaxed">
+          Vet du allerede hvilken undertone eller dybde du har? Det gjør shade match mer presis enn analyse alene.
+        </p>
+
+        <div className="mb-5">
+          <div className="text-[10px] uppercase tracking-[0.32em] text-mute mb-3">
+            Undertone
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            {UNDERTONES.map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setManualUndertone(key)}
+                className={`py-3 text-[10px] uppercase tracking-[0.2em] border transition-colors ${
+                  manualUndertone === key
+                    ? "border-ink bg-ink text-bone"
+                    : "border-stone/40 text-soft-ink hover:border-ink"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div className="text-[10px] uppercase tracking-[0.32em] text-mute mb-3">
+            Dybde
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {DEPTHS.map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setManualDepth(key)}
+                className={`py-3 text-[10px] uppercase tracking-[0.2em] border transition-colors ${
+                  manualDepth === key
+                    ? "border-ink bg-ink text-bone"
+                    : "border-stone/40 text-soft-ink hover:border-ink"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Divider */}
+      <div className="divider-line mb-8" />
+
       {/* Skin type */}
       <section className="mb-8">
-        <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-4">Hudtype</div>
+        <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-4">
+          Hudtype
+        </div>
         <div className="grid grid-cols-3 gap-2">
           {SKIN_TYPES.map(({ key, label }) => (
             <button
@@ -132,7 +226,9 @@ export default function ProfileForm({
 
       {/* Skin goals */}
       <section className="mb-8">
-        <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-4">Hudmål</div>
+        <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-4">
+          Hudmål
+        </div>
         <div className="flex flex-wrap gap-2">
           {SKIN_GOALS.map(({ key, label }) => (
             <button
@@ -152,7 +248,9 @@ export default function ProfileForm({
 
       {/* Help with */}
       <section className="mb-8">
-        <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-4">Hva vil du ha hjelp med?</div>
+        <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-4">
+          Hva vil du ha hjelp med?
+        </div>
         <div className="flex flex-wrap gap-2">
           {HELP_WITH.map(({ key, label }) => (
             <button
@@ -172,7 +270,9 @@ export default function ProfileForm({
 
       {/* Budget */}
       <section className="mb-8">
-        <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-4">Budsjett</div>
+        <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-4">
+          Budsjett
+        </div>
         <div className="grid grid-cols-4 gap-2">
           {BUDGETS.map(({ key, label }) => (
             <button
@@ -192,7 +292,9 @@ export default function ProfileForm({
 
       {/* Preferences */}
       <section className="mb-8">
-        <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-4">Preferanser</div>
+        <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-4">
+          Preferanser
+        </div>
         <div className="space-y-3">
           <button
             onClick={() => setFragranceFree((v) => !v)}
@@ -201,7 +303,9 @@ export default function ProfileForm({
             }`}
           >
             <span className="font-display text-base">Parfymefritt</span>
-            <span className="text-[10px] uppercase tracking-[0.24em]">{fragranceFree ? "Ja" : "Nei"}</span>
+            <span className="text-[10px] uppercase tracking-[0.24em]">
+              {fragranceFree ? "Ja" : "Nei"}
+            </span>
           </button>
           <button
             onClick={() => setVegan((v) => !v)}
@@ -210,14 +314,18 @@ export default function ProfileForm({
             }`}
           >
             <span className="font-display text-base">Vegansk</span>
-            <span className="text-[10px] uppercase tracking-[0.24em]">{vegan ? "Ja" : "Nei"}</span>
+            <span className="text-[10px] uppercase tracking-[0.24em]">
+              {vegan ? "Ja" : "Nei"}
+            </span>
           </button>
         </div>
       </section>
 
       {/* Life phase */}
       <section className="mb-10">
-        <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-4">Livsfase (valgfritt)</div>
+        <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-4">
+          Livsfase (valgfritt)
+        </div>
         <div className="space-y-2">
           {LIFE_PHASES.map(({ key, label }) => (
             <button
