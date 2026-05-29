@@ -2,16 +2,25 @@
 
 import { useState } from "react";
 
-type Answer = "yes" | "no" | null;
+type HydrationLevel = 1 | 2 | 3 | 4 | 5 | null;
+type YesNo = "yes" | "no" | null;
+
+const HYDRATION_OPTIONS: Array<{ value: HydrationLevel; label: string }> = [
+  { value: 1, label: "Veldig tørr" },
+  { value: 2, label: "Tørr" },
+  { value: 3, label: "Normal" },
+  { value: 4, label: "Fuktig" },
+  { value: 5, label: "Veldig fuktig" },
+];
 
 export default function AnalysisPrecision() {
-  const [dry, setDry] = useState<Answer>(null);
-  const [sensitive, setSensitive] = useState<Answer>(null);
-  const [actives, setActives] = useState<Answer>(null);
+  const [hydration, setHydration] = useState<HydrationLevel>(null);
+  const [sensitive, setSensitive] = useState<YesNo>(null);
+  const [actives, setActives] = useState<YesNo>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  const answered = dry !== null || sensitive !== null || actives !== null;
+  const answered = hydration !== null || sensitive !== null || actives !== null;
 
   async function save() {
     if (!answered) return;
@@ -20,18 +29,19 @@ export default function AnalysisPrecision() {
     const tags: string[] = [];
     const metrics: Record<string, number> = {};
 
-    if (dry === "yes") {
-      tags.push("dry_patches");
-      metrics.hydration = 1;
+    if (hydration !== null) {
+      metrics.hydration = hydration;
+      if (hydration <= 2) tags.push("dry_patches");
     }
     if (sensitive === "yes") {
       tags.push("redness");
       metrics.sensitivity = 4;
     }
 
+    // Utled feel fra svarene
     let feel = "balanced";
-    if (dry === "yes" && sensitive === "yes") feel = "reactive";
-    else if (dry === "yes") feel = "tight";
+    if (hydration !== null && hydration <= 2 && sensitive === "yes") feel = "reactive";
+    else if (hydration !== null && hydration <= 2) feel = "tight";
     else if (sensitive === "yes") feel = "reactive";
 
     const freeText =
@@ -51,10 +61,10 @@ export default function AnalysisPrecision() {
     return (
       <section className="mb-8 bg-cream px-5 py-5">
         <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-2">
-          Presisert
+          Justert
         </div>
         <p className="font-display italic text-sm text-soft-ink leading-relaxed">
-          Notert. Anbefalingene er oppdatert basert på svarene dine.
+          Notert. Anbefalingene er oppdatert.
         </p>
       </section>
     );
@@ -62,22 +72,45 @@ export default function AnalysisPrecision() {
 
   return (
     <section className="mb-8 border border-stone/40 px-5 py-5">
-      <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-4">
-        Presiser analysen
+      <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-1">
+        Juster
+      </div>
+      <p className="font-display italic text-xs text-soft-ink mb-5 leading-relaxed">
+        Fukt er vanskelig å lese fra bilde — si fra selv.
+      </p>
+
+      {/* Fukt-nivå */}
+      <div className="mb-5">
+        <div className="font-display text-sm mb-3">Hvordan kjennes fuktnivået?</div>
+        <div className="flex gap-1">
+          {HYDRATION_OPTIONS.map(({ value, label }) => (
+            <button
+              key={value}
+              onClick={() => setHydration(hydration === value ? null : value)}
+              className={`flex-1 py-3 border text-[9px] uppercase tracking-[0.15em] leading-tight transition-colors ${
+                hydration === value
+                  ? "border-ink bg-ink text-bone"
+                  : "border-stone/40 text-soft-ink hover:border-ink"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="space-y-4 mb-5">
-        <QuestionRow
-          label="Føles huden tørr i dag?"
-          value={dry}
-          onChange={setDry}
-        />
-        <QuestionRow
+      {/* Sensitivitet */}
+      <div className="mb-5">
+        <YesNoRow
           label="Sensitiv eller varm akkurat nå?"
           value={sensitive}
           onChange={setSensitive}
         />
-        <QuestionRow
+      </div>
+
+      {/* Aktive ingredienser */}
+      <div className="mb-5">
+        <YesNoRow
           label="Brukt aktive ingredienser nylig?"
           value={actives}
           onChange={setActives}
@@ -90,20 +123,20 @@ export default function AnalysisPrecision() {
           disabled={saving}
           className="w-full bg-ink text-bone py-3 text-[11px] uppercase tracking-[0.32em] disabled:opacity-50 transition-opacity"
         >
-          {saving ? "Lagrer…" : "Lagre svar"}
+          {saving ? "Lagrer…" : "Lagre"}
         </button>
       )}
     </section>
   );
 }
 
-function QuestionRow({
+function YesNoRow({
   label,
   value,
   onChange,
 }: {
   label: string;
-  value: Answer;
+  value: YesNo;
   onChange: (v: "yes" | "no") => void;
 }) {
   return (

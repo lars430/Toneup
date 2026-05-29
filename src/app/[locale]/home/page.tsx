@@ -9,7 +9,6 @@ import {
   todayNeed,
   todayAvoid,
 } from "@/lib/fit-now";
-import QuickCheck from "./_components/QuickCheck";
 
 export default async function HomePage({
   params: { locale },
@@ -135,26 +134,31 @@ export default async function HomePage({
             </div>
           </section>
         ) : (
-          /* Analyse finnes, ikke logget i dag — vis behovet + QuickCheck */
+          /* Analyse finnes, ikke tatt ny analyse i dag */
           <section className="mb-4">
             <div className="bg-ink text-bone px-5 py-5">
               <div className="text-[10px] uppercase tracking-[0.32em] text-bone/50 mb-2">
                 I dag
               </div>
-              <div className="flex items-baseline justify-between gap-4">
+              <div className="flex items-baseline justify-between gap-4 mb-4">
                 <div className="font-display text-3xl leading-none">
                   {needHeadline}
                 </div>
                 <div className="text-right">
                   <div className="text-[10px] uppercase tracking-[0.28em] text-bone/50 mb-1">
-                    Basert på
+                    Siste analyse
                   </div>
                   <div className="font-display italic text-sm text-bone/60">
                     {formatRelative(lastAnalysis.taken_at)}
                   </div>
                 </div>
               </div>
-              <QuickCheck locale={locale} />
+              <Link
+                href={`/${locale}/analyze/calibrate`}
+                className="inline-block text-[10px] uppercase tracking-[0.32em] text-bone/60 underline underline-offset-4 hover:text-bone/80 transition-colors"
+              >
+                Ta ny analyse for å oppdatere →
+              </Link>
             </div>
           </section>
         )}
