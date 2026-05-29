@@ -24,6 +24,9 @@ export interface CalibrationResult {
   /** Per-region samples on the face — used for region-aware redness etc. */
   regions?: {
     forehead?: RegionSample;
+    templeL?: RegionSample;
+    templeR?: RegionSample;
+    jawline?: RegionSample;
     nose?: RegionSample;
     cheekL?: RegionSample;
     cheekR?: RegionSample;
@@ -85,6 +88,9 @@ export function extractCalibration(
   // Sub-regions roughly aligned to a centered face inside the oval guide.
   const regions = {
     forehead: sampleRegion(ctx, sub(0.20, 0.05, 0.60, 0.15), w, h),
+    templeL:  sampleRegion(ctx, sub(0.08, 0.18, 0.18, 0.14), w, h),
+    templeR:  sampleRegion(ctx, sub(0.74, 0.18, 0.18, 0.14), w, h),
+    jawline:  sampleRegion(ctx, sub(0.28, 0.68, 0.44, 0.12), w, h),
     nose:     sampleRegion(ctx, sub(0.42, 0.30, 0.16, 0.30), w, h),
     cheekL:   sampleRegion(ctx, sub(0.05, 0.40, 0.22, 0.22), w, h),
     cheekR:   sampleRegion(ctx, sub(0.73, 0.40, 0.22, 0.22), w, h),

@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import { createServer } from "@/lib/supabase";
 import { getAnalysisProvider } from "@/engine";
 import type { UserContext } from "@/engine/types";
+import { analyzeSkinProfile, type CalibrationInput } from "@/lib/skin-profile";
 
 export async function POST(req: Request) {
   const supabase = createServer();
@@ -20,6 +21,16 @@ export async function POST(req: Request) {
   if (!body?.paperRgb || !body?.skinRgb) {
     return NextResponse.json({ error: "missing_calibration" }, { status: 400 });
   }
+
+  const useOpenAI =
+    process.env.SKIN_ANALYSIS_USE_OPENAI !== "false" &&
+    !!process.env.OPENAI_API_KEY;
+
+  const skinProfile = await analyzeSkinProfile(body as CalibrationInput, {
+    imageBase64: useOpenAI ? body.imageBase64 : undefined,
+    openaiApiKey: useOpenAI ? process.env.OPENAI_API_KEY : undefined,
+  });
+  const calibrationPayload = { ...body, skinProfile };
 
   // Load profile for context
   const { data: profile } = await supabase
@@ -39,7 +50,7 @@ export async function POST(req: Request) {
   // Pass calibration as JSON envelope through the standard interface
   const engine = getAnalysisProvider();
   const result = await engine.analyzeSkin(
-    { source: JSON.stringify(body), mimeType: "application/json" },
+    { source: JSON.stringify(calibrationPayload), mimeType: "application/json" },
     ctx
   );
 
@@ -61,5 +72,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ analysisId: analysis.id });
+  return NextResponse.json({
+    analysisId: analysis.id,
+    ...(process.env.NODE_ENV === "development" && skinProfile.debug
+      ? { debug: skinProfile.debug }
+      : {}),
+  });
 }

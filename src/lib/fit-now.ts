@@ -14,6 +14,13 @@ export type FitVerdict = "great" | "good" | "neutral" | "watch";
 export interface FitSignal {
   undertone?: "warm" | "cool" | "neutral" | string | null;
   depth?: "fair" | "light" | "medium" | "tan" | "deep" | string | null;
+  /** Granular depth from skin profile (fair_light, light, …) */
+  skinDepth?: string | null;
+  recommendedDepthRange?: string[];
+  avoidFoundationDepths?: string[];
+  avoidUndertones?: string[];
+  rednessLevel?: string | null;
+  correctedSkinHex?: string | null;
   /** 0..5, avg of last 7 logs */
   avgRedness?: number;
   avgDryness?: number;
@@ -199,8 +206,20 @@ export function buildSignal(
   season: "spring" | "summer" | "autumn" | "winter"
 ): FitSignal {
   const raw = lastAnalysis?.raw_result ?? lastAnalysis ?? {};
-  const undertone = raw?.raw?.undertone ?? raw?.undertone ?? null;
-  const depth = raw?.raw?.depth ?? raw?.depth ?? null;
+  const inner = raw?.raw ?? raw;
+  const skinProfile = inner?.skinProfile ?? null;
+  const undertone =
+    skinProfile?.legacy_undertone ??
+    inner?.undertone ??
+    raw?.undertone ??
+    null;
+  const depth =
+    skinProfile?.legacy_depth ?? inner?.depth ?? raw?.depth ?? null;
+  const skinDepth = skinProfile?.skin_depth ?? inner?.skin_depth ?? null;
+  const corrected = inner?.correctedSkinRgb as [number, number, number] | undefined;
+  const correctedSkinHex = corrected
+    ? `#${corrected.map((n) => Math.round(n).toString(16).padStart(2, "0")).join("")}`
+    : null;
   const concerns = (raw?.concerns ?? []).map((c: any) => c.key);
 
   const avg = (key: string) =>
@@ -212,6 +231,12 @@ export function buildSignal(
   return {
     undertone,
     depth,
+    skinDepth,
+    recommendedDepthRange: skinProfile?.recommended_foundation_depth_range,
+    avoidFoundationDepths: skinProfile?.avoid_foundation_depths,
+    avoidUndertones: skinProfile?.avoid_undertones,
+    rednessLevel: skinProfile?.redness_level ?? inner?.redness_level,
+    correctedSkinHex,
     concerns,
     avgRedness: avg("redness"),
     avgDryness: avg("dryness"),

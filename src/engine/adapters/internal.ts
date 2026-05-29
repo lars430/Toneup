@@ -34,6 +34,11 @@ import type {
   RednessPattern,
 } from "../types";
 import type { ProductCategory } from "@/types/domain";
+import {
+  analyzeFromCalibration,
+  type CalibrationInput,
+  type SkinProfile,
+} from "@/lib/skin-profile";
 
 interface RegionSample {
   mean: [number, number, number];
@@ -44,7 +49,19 @@ interface CalibrationData {
   paperRgb: [number, number, number];
   skinRgb: [number, number, number];
   skinStdDev?: number;
-  regions?: Partial<Record<"forehead" | "nose" | "cheekL" | "cheekR" | "chin", RegionSample>>;
+  regions?: Partial<
+    Record<
+      | "forehead"
+      | "templeL"
+      | "templeR"
+      | "jawline"
+      | "nose"
+      | "cheekL"
+      | "cheekR"
+      | "chin",
+      RegionSample
+    >
+  >;
   lighting?: {
     brightness: number;
     warmthBias: number;
@@ -53,6 +70,8 @@ interface CalibrationData {
   };
   gains: [number, number, number];
   confidence: number;
+  /** Pre-computed by /api/analyze-skin or analyze-internal */
+  skinProfile?: SkinProfile;
 }
 
 export class InternalAdapter implements AnalysisProvider {
@@ -73,13 +92,21 @@ export class InternalAdapter implements AnalysisProvider {
     };
 
     const { lightness, saturation } = rgbToHsl(corrected);
-    const depth = classifyDepth(lightness);
 
-    // ── Redness — region-aware ──────────────────────────────────────
+    // ── Skin profile (depth/undertone — excludes redness bias) ─────
+    const skinProfile =
+      calib.skinProfile ?? analyzeFromCalibration(calib as CalibrationInput);
+    const depth = skinProfile.legacy_depth;
+    const undertoneResult: UndertoneResult = {
+      label: skinProfile.legacy_undertone,
+      confidence: profileConfidenceLevel(skinProfile.confidence),
+    };
+
+    // ── Redness — region-aware (separate from undertone/depth) ──────
     const redness = analyzeRedness(corrected, regionsCorrected);
-
-    // ── Undertone — with confidence damping ─────────────────────────
-    const undertoneResult = classifyUndertone(corrected, calib.lighting, redness.score);
+    if (skinProfile.redness_level === "high") redness.score = Math.max(redness.score, 75);
+    else if (skinProfile.redness_level === "medium")
+      redness.score = Math.max(redness.score, 55);
 
     // ── Glow / radiance ─────────────────────────────────────────────
     const glowRaw = clamp01(lightness * 0.65 + saturation * 0.35);
@@ -118,7 +145,7 @@ export class InternalAdapter implements AnalysisProvider {
     };
 
     // ── Lighting context for the UI ─────────────────────────────────
-    const lightingQuality = describeLighting(calib);
+    const lightingQuality = describeLighting(calib, skinProfile);
 
     // ── Concerns ranked ─────────────────────────────────────────────
     const ranked = rankConcerns(scores, redness, confidence);
@@ -127,7 +154,12 @@ export class InternalAdapter implements AnalysisProvider {
     const lowPriorityConcerns = ranked.slice(3).map((c) => c.key);
 
     // ── Observations / Interpretations / Recommendations ────────────
-    const observations = buildObservations(depth, undertoneResult.label, redness, lightingQuality);
+    const observations = buildObservations(
+      skinProfile.skin_depth,
+      undertoneResult.label,
+      redness,
+      lightingQuality
+    );
     const interpretations = buildInterpretations(scores, redness, undertoneResult, confidence);
     const recommendations = buildRecommendations(scores, redness, undertoneResult);
 
@@ -177,6 +209,9 @@ export class InternalAdapter implements AnalysisProvider {
         correctedSkinRgb: corrected,
         undertone: undertoneResult.label,
         depth,
+        skin_depth: skinProfile.skin_depth,
+        skinProfile,
+        redness_level: skinProfile.redness_level,
         rednessPattern: redness.pattern,
         rednessByRegion: redness.byRegion,
       },
@@ -186,8 +221,9 @@ export class InternalAdapter implements AnalysisProvider {
   async matchFoundation(image: ImageInput, _ctx: UserContext): Promise<ShadeMatch[]> {
     const calib = parseCalibration(image);
     const corrected = applyWB(calib.skinRgb, calib.gains);
-    const undertone = classifyUndertone(corrected, calib.lighting, 0);
-    const depth = classifyDepth(rgbToHsl(corrected).lightness);
+    const profile = calib.skinProfile ?? analyzeFromCalibration(calib as CalibrationInput);
+    const undertone = { label: profile.legacy_undertone, confidence: "medium" as ConfidenceLevel };
+    const depth = profile.legacy_depth;
 
     return [
       {
@@ -394,13 +430,29 @@ function computeLightingPenalty(calib: CalibrationData): number {
   return Math.min(0.7, penalty);
 }
 
-function describeLighting(calib: CalibrationData): NonNullable<SkinAnalysisResult["lightingQuality"]> {
+function profileConfidenceLevel(c: number): ConfidenceLevel {
+  if (c >= 0.75) return "high";
+  if (c >= 0.55) return "medium";
+  if (c >= 0.35) return "medium-low";
+  return "low";
+}
+
+function describeLighting(
+  calib: CalibrationData,
+  skinProfile?: SkinProfile
+): NonNullable<SkinAnalysisResult["lightingQuality"]> {
   const notes: string[] = [];
   const l = calib.lighting;
   if (!l) {
     return { overall: "unknown", warmthBias: 0, brightness: 0, notes: ["Lyset er ikke målt"] };
   }
+  if (skinProfile?.white_balance_status === "unreliable") {
+    notes.push("Hvitark-referansen var upålitelig — undertone og dybde er noe usikre");
+  }
   let overall: NonNullable<SkinAnalysisResult["lightingQuality"]>["overall"] = "good";
+  if (skinProfile?.lighting_quality === "poor") overall = "uneven";
+  else if (skinProfile?.lighting_quality === "acceptable" && overall === "good")
+    overall = "dim";
   if (l.brightness < 0.45) {
     overall = "dim";
     notes.push("Lyset er noe dimt — undertone og glød er usikre");
@@ -702,6 +754,7 @@ function parseCalibration(image: ImageInput): CalibrationData {
         ...data,
         gains,
         confidence: data.confidence ?? 0.8,
+        skinProfile: data.skinProfile,
       };
     } catch {
       // fall through
@@ -789,7 +842,13 @@ function confidenceToNumber(c: ConfidenceLevel): number {
 
 function depthLabel(d: string): string {
   return ({
-    fair: "lys", light: "lys-medium", medium: "medium", tan: "tan", deep: "dyp",
+    fair: "lys",
+    fair_light: "lys (fair light)",
+    light: "lys-medium",
+    light_medium: "lys-medium",
+    medium: "medium",
+    tan: "tan",
+    deep: "dyp",
   } as Record<string, string>)[d] ?? d;
 }
 

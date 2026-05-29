@@ -155,10 +155,12 @@ export default function CapturePage({
       await new Promise((r) => setTimeout(r, 200));
     }
 
+    const imageBase64 = captureFrameBase64(video, 512);
+
     const res = await fetch("/api/skin/analyze-internal", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(best),
+      body: JSON.stringify({ ...best, imageBase64 }),
     });
 
     if (!res.ok) {
@@ -275,6 +277,22 @@ export default function CapturePage({
       </div>
     </main>
   );
+}
+
+/** Low-res JPEG for server-side vision (never stored unless user opts in elsewhere). */
+function captureFrameBase64(
+  video: HTMLVideoElement,
+  maxWidth: number
+): string {
+  const scale = Math.min(1, maxWidth / video.videoWidth);
+  const w = Math.round(video.videoWidth * scale);
+  const h = Math.round(video.videoHeight * scale);
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d")!;
+  ctx.drawImage(video, 0, 0, w, h);
+  return canvas.toDataURL("image/jpeg", 0.65);
 }
 
 function feedbackKeyFor(r: CalibrationResult): string {
