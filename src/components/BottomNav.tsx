@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 interface NavItem {
   path: string;
   labels: Record<string, string>;
+  activePrefix?: string;
 }
 
 const NAV: NavItem[] = [
@@ -14,8 +15,9 @@ const NAV: NavItem[] = [
     labels: { no: "Hjem", en: "Home", da: "Hjem", sv: "Hem", es: "Inicio", fr: "Accueil" },
   },
   {
-    path: "/skin-log",
-    labels: { no: "Logg", en: "Log", da: "Log", sv: "Logg", es: "Diario", fr: "Journal" },
+    path: "/analyze/calibrate",
+    activePrefix: "/analyze",
+    labels: { no: "Analyser", en: "Analyse", da: "Analyser", sv: "Analysera", es: "Analizar", fr: "Analyser" },
   },
   {
     path: "/bag",
@@ -43,9 +45,11 @@ export default function BottomNav({ locale }: Props) {
       <div className="max-w-md mx-auto flex">
         {NAV.map((item) => {
           const href = `/${locale}${item.path}`;
-          // Mark active if pathname starts with the href
-          // Special case: /home should not match /home/... sub-routes unintentionally
-          const active = pathname === href || pathname.startsWith(`${href}/`);
+          const activeBase = `/${locale}${item.activePrefix ?? item.path}`;
+          const active =
+            pathname === href ||
+            pathname.startsWith(`${activeBase}/`) ||
+            pathname === activeBase;
           const label = item.labels[locale] ?? item.labels.en;
           return (
             <Link
