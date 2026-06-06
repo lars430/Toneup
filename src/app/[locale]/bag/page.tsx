@@ -493,6 +493,16 @@ function FoundationCard({
             {item.products?.brand}
           </div>
           <FitTag fit={fit} />
+          {item.products?.brand && item.products?.name && (
+            <a
+              href={googleImagesUrl(item.products.brand, item.products.name, shadeName)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[9px] uppercase tracking-[0.2em] text-mute hover:text-soft-ink transition-colors mt-1 inline-block"
+            >
+              Søk bilde →
+            </a>
+          )}
           <SetShadeButton
             itemId={item.id}
             currentShadeName={item.shade_name ?? item.products?.shade_name}
@@ -506,6 +516,11 @@ function FoundationCard({
       <RemoveBagItem itemId={item.id} />
     </div>
   );
+}
+
+function googleImagesUrl(brand: string, name: string, shade?: string | null): string {
+  const q = encodeURIComponent([brand, name, shade].filter(Boolean).join(" "));
+  return `https://www.google.com/search?q=${q}&tbm=isch`;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
