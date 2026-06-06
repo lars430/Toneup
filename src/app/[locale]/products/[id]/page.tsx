@@ -119,7 +119,7 @@ export default async function ProductPage({
           ← Tilbake
         </Link>
 
-        {/* Product image — hosted image, hex swatch, or Google Images fallback */}
+        {/* Product image — hosted image when available, hex swatch otherwise */}
         {attr.image_url ? (
           <div className="relative w-full h-64 mb-7 bg-stone/10">
             <Image
@@ -131,21 +131,10 @@ export default async function ProductPage({
             />
           </div>
         ) : (
-          <div className="mb-7">
-            {attr.hex ? (
-              <div className="w-full h-32 mb-3" style={{ background: attr.hex }} />
-            ) : (
-              <div className="w-full h-32 mb-3 bg-stone/20" />
-            )}
-            <a
-              href={googleImagesUrl(product.brand, product.name, product.shade_name)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-center gap-2 py-3 border border-stone/40 hover:border-ink transition-colors text-[10px] uppercase tracking-[0.32em] text-soft-ink"
-            >
-              <span>Søk bilde på Google →</span>
-            </a>
-          </div>
+          <div
+            className="w-full h-32 mb-7"
+            style={{ background: attr.hex ?? "#E8DDD3" }}
+          />
         )}
 
         {/* Header */}
@@ -456,11 +445,6 @@ function Badge({ label }: { label: string }) {
       {label}
     </span>
   );
-}
-
-function googleImagesUrl(brand: string, name: string, shade?: string | null): string {
-  const q = encodeURIComponent([brand, name, shade].filter(Boolean).join(" "));
-  return `https://www.google.com/search?q=${q}&tbm=isch`;
 }
 
 function computeSeason(): "spring" | "summer" | "autumn" | "winter" {
