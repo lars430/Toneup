@@ -70,17 +70,20 @@ export default async function HomePage({
     .filter((s) => s.fit.verdict === "great" || s.fit.verdict === "good")
     .sort((a, b) => b.fit.score - a.fit.score);
 
-  const topPicks = scored.slice(0, 3);
-
+  const topPicks = scored.slice(0, 2);
   const hasAnalysis = !!lastAnalysis;
   const productCount = bagItems?.length ?? 0;
+
+  const undertone =
+    lastAnalysis?.raw_result?.undertone ??
+    lastAnalysis?.raw_result?.raw?.undertone ?? null;
 
   return (
     <main className="min-h-dvh bg-bone pb-28">
       <div className="max-w-md mx-auto px-6 pt-10">
 
         {/* ── Header ──────────────────────────────────────────────── */}
-        <header className="mb-8">
+        <header className="mb-7">
           <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-3">
             {greeting} · {seasonLabel(season, locale)}
           </div>
@@ -89,97 +92,86 @@ export default async function HomePage({
           </h1>
         </header>
 
-        {/* ── Status / primær CTA ─────────────────────────────────── */}
-        {!hasAnalysis ? (
-          /* Ingen analyse — analyse er primærhandlingen */
-          <section className="mb-4">
-            <Link
-              href={`/${locale}/analyze/calibrate`}
-              className="block bg-ink text-bone px-5 py-7 hover:bg-soft-ink transition-colors"
-            >
-              <div className="text-[10px] uppercase tracking-[0.32em] text-bone/50 mb-3">
-                Kom i gang
-              </div>
-              <div className="font-display text-3xl leading-snug mb-2">
-                Ta din første analyse
-              </div>
-              <div className="font-display italic text-sm text-bone/60">
-                Nøyaktig fargelesning av huden din — tar 2 minutter →
-              </div>
-            </Link>
-          </section>
-        ) : loggedToday ? (
-          /* Analyse + logget i dag — vis status */
-          <section className="mb-4">
-            <div className="bg-ink text-bone px-5 py-5">
-              <div className="text-[10px] uppercase tracking-[0.32em] text-bone/50 mb-2">
-                I dag
-              </div>
-              <div className="flex items-baseline justify-between gap-4 mb-1">
-                <div className="font-display text-3xl leading-none">
-                  {feelLabel(lastLog.feel_label)}
-                </div>
-                <div className="text-right">
-                  <div className="text-[10px] uppercase tracking-[0.28em] text-bone/50 mb-1">
-                    Trenger
-                  </div>
-                  <div className="font-display italic text-base">{needHeadline}</div>
-                </div>
-              </div>
-              {lastLog.tags?.length > 0 && (
-                <div className="font-display italic text-xs text-bone/60 mt-1">
-                  {lastLog.tags.slice(0, 3).map(tagLabel).join(" · ")}
-                </div>
-              )}
-            </div>
-          </section>
-        ) : (
-          /* Analyse finnes, ikke tatt ny analyse i dag */
-          <section className="mb-4">
-            <div className="bg-ink text-bone px-5 py-5">
-              <div className="text-[10px] uppercase tracking-[0.32em] text-bone/50 mb-2">
-                I dag
-              </div>
-              <div className="flex items-baseline justify-between gap-4 mb-4">
-                <div className="font-display text-3xl leading-none">
-                  {needHeadline}
-                </div>
-                <div className="text-right">
-                  <div className="text-[10px] uppercase tracking-[0.28em] text-bone/50 mb-1">
-                    Siste analyse
-                  </div>
-                  <div className="font-display italic text-sm text-bone/60">
-                    {formatRelative(lastAnalysis.taken_at)}
-                  </div>
-                </div>
-              </div>
-              <Link
-                href={`/${locale}/analyze/calibrate`}
-                className="inline-block text-[10px] uppercase tracking-[0.32em] text-bone/60 underline underline-offset-4 hover:text-bone/80 transition-colors"
-              >
-                Ta ny analyse for å oppdatere →
-              </Link>
-            </div>
-          </section>
+        {/* ── Intro for nye brukere ────────────────────────────────── */}
+        {!hasAnalysis && (
+          <p className="font-display italic text-soft-ink text-sm mb-7 leading-relaxed">
+            Analyser huden med kamera, finn riktige foundation-shades og bruk produktene dine smartere.
+          </p>
         )}
+
+        {/* ── Kompakt status for tilbakevendende brukere ───────────── */}
+        {hasAnalysis && (
+          <div className="flex items-baseline justify-between mb-6 pb-4 border-b border-stone/25">
+            <div>
+              <span className="font-display text-base">{needHeadline}</span>
+              <span className="font-display italic text-xs text-mute ml-2">i dag</span>
+            </div>
+            <div className="text-[9px] uppercase tracking-[0.28em] text-mute">
+              {loggedToday
+                ? feelLabel(lastLog.feel_label)
+                : formatRelative(lastAnalysis.taken_at)}
+            </div>
+          </div>
+        )}
+
+        {/* ── 2×2 funksjonsrutenett ────────────────────────────────── */}
+        <section className="grid grid-cols-2 gap-3 mb-5">
+          <FeatureTile
+            number="01"
+            label="Analyser"
+            title={hasAnalysis ? "Hudanalyse" : "Start her"}
+            sub={hasAnalysis ? formatRelative(lastAnalysis.taken_at) : "Tar 2 minutter"}
+            href={
+              hasAnalysis
+                ? `/${locale}/analyze/result/${lastAnalysis.id}`
+                : `/${locale}/analyze/calibrate`
+            }
+            dark={!hasAnalysis}
+          />
+          <FeatureTile
+            number="02"
+            label="Shade Match"
+            title="Finn din farge"
+            sub={
+              undertone
+                ? undertoneShort(undertone)
+                : "472 nyanser"
+            }
+            href={`/${locale}/shade-match`}
+          />
+          <FeatureTile
+            number="03"
+            label="Pungen"
+            title="Dine produkter"
+            sub={
+              topPicks.length > 0
+                ? `${topPicks.length} passer nå`
+                : productCount > 0
+                ? `${productCount} produkt${productCount !== 1 ? "er" : ""}`
+                : "Legg til produkter"
+            }
+            href={`/${locale}/bag`}
+          />
+          <FeatureTile
+            number="04"
+            label={isPro ? "Rådgiver · Pro" : "Rådgiver"}
+            title="Spør om hud"
+            sub={isPro ? "Personlig AI" : "Sminke og rutiner"}
+            href={`/${locale}/ask`}
+          />
+        </section>
 
         {/* ── Unngå i dag ─────────────────────────────────────────── */}
         {avoidList.length > 0 && (
-          <section className="mb-4">
-            <div className="border border-stone/40 px-5 py-4">
-              <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-2">
-                Unngå i dag
-              </div>
-              <div className="font-display text-base leading-snug">
-                {avoidList.join(" · ")}
-              </div>
-            </div>
-          </section>
+          <div className="mb-5 text-[10px] leading-relaxed">
+            <span className="uppercase tracking-[0.32em] text-mute">Unngå i dag</span>
+            <span className="font-display text-ink ml-2">{avoidList.join(" · ")}</span>
+          </div>
         )}
 
-        {/* ── Passer huden din i dag ──────────────────────────────── */}
+        {/* ── Top picks fra pungen ─────────────────────────────────── */}
         {topPicks.length > 0 && (
-          <section className="mb-4">
+          <section className="mb-5">
             <div className="flex items-baseline justify-between mb-3">
               <div className="text-[10px] uppercase tracking-[0.4em] text-mute">
                 Passer nå
@@ -200,11 +192,11 @@ export default async function HomePage({
                       ? `/${locale}/products/${item.products.id}`
                       : `/${locale}/bag`
                   }
-                  className="block bg-cream px-4 py-4 hover:bg-stone/30 transition-colors"
+                  className="block bg-cream px-4 py-3 hover:bg-stone/30 transition-colors"
                 >
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-3">
                     <div
-                      className="w-10 h-10 flex-shrink-0 rounded-sm border border-stone/30"
+                      className="w-8 h-8 flex-shrink-0 rounded-sm border border-stone/30"
                       style={{
                         background:
                           item.shade_code ??
@@ -213,19 +205,20 @@ export default async function HomePage({
                       }}
                     />
                     <div className="flex-1 min-w-0">
-                      <div className="font-display text-base truncate">
+                      <div className="font-display text-sm truncate">
                         {item.products?.name ?? item.notes ?? "Produkt"}
                       </div>
                       <div className="font-display italic text-xs text-soft-ink truncate">
                         {item.products?.brand}
-                        {item.shade_name && ` · ${item.shade_name}`}
+                        {(item.shade_name ?? item.products?.shade_name) &&
+                          ` · ${item.shade_name ?? item.products?.shade_name}`}
                       </div>
-                      {fit.reason && (
-                        <div className="text-[10px] tracking-wider text-accent mt-1">
-                          {fit.reason}
-                        </div>
-                      )}
                     </div>
+                    {fit.reason && (
+                      <div className="text-[9px] tracking-wider text-accent flex-shrink-0">
+                        {fit.reason}
+                      </div>
+                    )}
                   </div>
                 </Link>
               ))}
@@ -233,131 +226,28 @@ export default async function HomePage({
           </section>
         )}
 
-        {/* ── Match CTAs: Shade + Routine ─────────────────────────── */}
-        <section className="mb-4 space-y-3">
-          <Link
-            href={`/${locale}/shade-match`}
-            className="block bg-cream px-5 py-5 hover:bg-stone/30 transition-colors group"
-          >
-            <div className="flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <div className="text-[10px] uppercase tracking-[0.4em] text-accent mb-2">
-                  Shade Match
-                </div>
-                <div className="font-display text-xl leading-snug mb-1">
-                  Finn din foundation-shade
-                </div>
-                <div className="font-display italic text-xs text-soft-ink">
-                  {hasAnalysis
-                    ? `Basert på ${undertoneLabel(
-                        lastAnalysis.raw_result?.undertone ??
-                          lastAnalysis.raw_result?.raw?.undertone
-                      ).toLowerCase() || "din palett"}`
-                    : "Vi matcher mot 472 nyanser"}
-                </div>
-              </div>
-              <div className="flex flex-col items-end gap-2">
-                <FoundationSwatches analysis={lastAnalysis} />
-                <span className="text-mute group-hover:text-ink transition-colors text-base">
-                  →
-                </span>
-              </div>
-            </div>
-          </Link>
-
-          <Link
-            href={`/${locale}/routine-match`}
-            className="block bg-cream px-5 py-5 hover:bg-stone/30 transition-colors group"
-          >
-            <div className="flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <div className="text-[10px] uppercase tracking-[0.4em] text-accent mb-2">
-                  Rutine Match
-                </div>
-                <div className="font-display text-xl leading-snug mb-1">
-                  Hudpleie tilpasset deg
-                </div>
-                <div className="font-display italic text-xs text-soft-ink">
-                  Rangert mot hudtype, behov og dagens logg
-                </div>
-              </div>
-              <span className="text-mute group-hover:text-ink transition-colors text-base">
-                →
-              </span>
-            </div>
-          </Link>
-        </section>
-
-        {/* ── Analyse-kort (bare når analyse finnes) ──────────────── */}
-        {hasAnalysis && (
-          <section className="mb-4">
-            <Link
-              href={`/${locale}/analyze/result/${lastAnalysis.id}`}
-              className="block border border-stone/40 px-5 py-5 hover:border-ink transition-colors"
-            >
-              <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-2">
-                Din palett
-              </div>
-              <div className="font-display text-xl leading-tight mb-1">
-                {lastAnalysis.raw_result?.shadeLabel ??
-                  lastAnalysis.summary?.depth ??
-                  "Se hudpalett"}
-              </div>
-              <div className="font-display italic text-xs text-soft-ink">
-                {undertoneLabel(
-                  lastAnalysis.raw_result?.undertone ??
-                    lastAnalysis.raw_result?.raw?.undertone
-                )}{" "}
-                · {formatRelative(lastAnalysis.taken_at)}
-              </div>
-            </Link>
-          </section>
-        )}
-
-        {/* ── Rådgiver CTA ────────────────────────────────────────── */}
-        <section className="mb-8">
-          <Link
-            href={`/${locale}/ask`}
-            className="flex items-center justify-between border border-stone/40 px-5 py-4 hover:border-ink transition-colors"
-          >
-            <div>
-              <div className="text-[10px] uppercase tracking-[0.4em] text-mute mb-1">
-                {isPro ? "Rådgiveren · Pro" : "Rådgiveren"}
-              </div>
-              <div className="font-display text-base">
-                {hasAnalysis
-                  ? "Spør om produktene, shades og rutinen din"
-                  : "Spør om hud, sminke eller produkter"}
-              </div>
-            </div>
-            <span className="text-mute text-base">→</span>
-          </Link>
-        </section>
-
-        {/* ── Pro upsell ──────────────────────────────────────────── */}
+        {/* ── Pro upsell ───────────────────────────────────────────── */}
         {!isPro && hasAnalysis && (
-          <section className="border border-ink px-6 py-7 text-center mb-8">
-            <div className="text-[10px] uppercase tracking-[0.4em] text-accent mb-3">
+          <section className="border border-ink px-5 py-5 text-center mb-6">
+            <div className="text-[10px] uppercase tracking-[0.4em] text-accent mb-2">
               Toneup Pro
             </div>
-            <h3 className="font-display text-2xl mb-3 leading-snug">
-              En personlig rådgiver<br />som kjenner deg
-            </h3>
-            <p className="font-display italic text-sm text-soft-ink mb-6 leading-relaxed">
-              Sesongprofil, AI-rådgiver, ubegrensede analyser.
+            <p className="font-display text-base mb-1 leading-snug">
+              AI-rådgiver · Sesongprofil · Ubegrensede analyser
             </p>
             <Link
               href={`/${locale}/upgrade`}
-              className="inline-block bg-ink text-bone px-8 py-3 text-[11px] uppercase tracking-[0.32em]"
+              className="inline-block mt-3 bg-ink text-bone px-6 py-3 text-[11px] uppercase tracking-[0.32em]"
             >
               Se Pro · 14 dagers prøvetid
             </Link>
           </section>
         )}
 
-        <p className="text-[10px] tracking-wider text-mute text-center mt-10 leading-relaxed">
+        <p className="text-[10px] tracking-wider text-mute text-center mt-6 mb-2 leading-relaxed">
           Toneup følger huden din gjennom alle sesonger.
-          {productCount > 0 && ` · ${productCount} produkt${productCount !== 1 ? "er" : ""} i pungen`}
+          {productCount > 0 &&
+            ` · ${productCount} produkt${productCount !== 1 ? "er" : ""} i pungen`}
         </p>
       </div>
 
@@ -366,28 +256,60 @@ export default async function HomePage({
   );
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────
+// ── Tile-komponent ─────────────────────────────────────────────────────────
 
-function FoundationSwatches({ analysis }: { analysis: any }) {
-  const raw = analysis?.raw_result?.raw ?? analysis?.raw_result ?? {};
-  const rgb = raw.correctedSkinRgb;
-  if (rgb && Array.isArray(rgb)) {
-    const hex = rgbToHex(rgb);
-    return <div className="w-8 h-8 rounded-sm" style={{ background: hex }} />;
-  }
+function FeatureTile({
+  number,
+  label,
+  title,
+  sub,
+  href,
+  dark = false,
+}: {
+  number: string;
+  label: string;
+  title: string;
+  sub: string;
+  href: string;
+  dark?: boolean;
+}) {
   return (
-    <div className="flex gap-1">
-      <div className="w-4 h-8 bg-[#EBCBA8]" />
-      <div className="w-4 h-8 bg-[#DDB791]" />
-      <div className="w-4 h-8 bg-[#AB7F4D]" />
-    </div>
+    <Link
+      href={href}
+      className={`flex flex-col justify-between px-4 py-5 min-h-[116px] transition-colors ${
+        dark
+          ? "bg-ink hover:bg-soft-ink"
+          : "bg-cream hover:bg-stone/30"
+      }`}
+    >
+      <div
+        className={`text-[9px] uppercase tracking-[0.32em] ${
+          dark ? "text-bone/50" : "text-mute"
+        }`}
+      >
+        {number} · {label}
+      </div>
+      <div>
+        <div
+          className={`font-display text-xl leading-tight mb-1 ${
+            dark ? "text-bone" : "text-ink"
+          }`}
+        >
+          {title}
+        </div>
+        <div
+          className={`font-display italic text-xs leading-relaxed ${
+            dark ? "text-bone/60" : "text-soft-ink"
+          }`}
+        >
+          {sub}
+        </div>
+      </div>
+    </Link>
   );
 }
 
-function rgbToHex([r, g, b]: number[]): string {
-  const h = (n: number) => Math.round(n).toString(16).padStart(2, "0");
-  return `#${h(r)}${h(g)}${h(b)}`;
-}
+// ── Helpers ────────────────────────────────────────────────────────────────
 
 function getGreeting(): string {
   const h = new Date().getHours();
@@ -429,27 +351,14 @@ function feelLabel(key: string): string {
   return m[key] ?? key;
 }
 
-function tagLabel(key: string): string {
-  const m: Record<string, string> = {
-    breakout: "Urenhet",
-    dry_patches: "Tørre flekker",
-    redness: "Rødhet",
-    smooth: "Glatt",
-    good_foundation: "Foundation satt godt",
-    bad_foundation: "Foundation satt dårlig",
-    slept_well: "Sov godt",
-    stressed: "Stresset",
-  };
-  return m[key] ?? key;
-}
-
-function undertoneLabel(key?: string): string {
+function undertoneShort(key?: string | null): string {
   const m: Record<string, string> = {
     warm: "Varm undertone",
     cool: "Kjølig undertone",
     neutral: "Nøytral undertone",
+    olive: "Oliven undertone",
   };
-  return key ? (m[key] ?? "") : "";
+  return key ? (m[key] ?? "Se alle shades") : "Se alle shades";
 }
 
 function formatRelative(date: string): string {
@@ -458,7 +367,7 @@ function formatRelative(date: string): string {
   const days = Math.floor(diff / 86_400_000);
   const hours = Math.floor(diff / 3_600_000);
   if (hours < 1) return "nettopp";
-  if (hours < 24) return `for ${hours} time${hours !== 1 ? "r" : ""} siden`;
+  if (hours < 24) return `for ${hours}t siden`;
   if (days === 1) return "i går";
   if (days < 7) return `for ${days} dager siden`;
   if (days < 30) return `for ${Math.floor(days / 7)} uker siden`;
