@@ -5,6 +5,7 @@ import { getPurchaseLinks } from "@/lib/purchase-links";
 import { deriveSkincareInfo, routineSlotLabel, routineStepLabel } from "@/lib/skincare-info";
 import { buildSignal, scoreBagItem } from "@/lib/fit-now";
 import AddToBagButton from "./_components/AddToBagButton";
+import { deriveMakeupInfo } from "@/lib/makeup-info";
 
 const CATEGORY_LABELS: Record<string, string> = {
   cleanser: "Rens", toner: "Toner", serum: "Serum",
@@ -95,6 +96,7 @@ export default async function ProductPage({
 
   const isSkincare = SKINCARE_CATEGORIES.has(product.category);
   const skincareInfo = isSkincare ? deriveSkincareInfo(product) : null;
+  const makeupInfo = !isSkincare ? deriveMakeupInfo(product) : null;
 
   // Personal fit — works for any category but most informative for skincare/foundation
   const season = computeSeason();
@@ -260,6 +262,65 @@ export default async function ProductPage({
                 </div>
                 <p className="font-display italic text-sm text-soft-ink leading-relaxed">
                   {skincareInfo.howToUse}
+                </p>
+              </section>
+            )}
+          </>
+        )}
+
+        {/* Makeup info block */}
+        {makeupInfo && (
+          <>
+            {makeupInfo.keyAttributes.length > 0 && (
+              <section className="mb-4 flex flex-wrap gap-2">
+                {makeupInfo.keyAttributes.map((k) => (
+                  <span
+                    key={k}
+                    className="px-3 py-1.5 bg-cream text-[10px] uppercase tracking-[0.24em] text-soft-ink"
+                  >
+                    {k}
+                  </span>
+                ))}
+              </section>
+            )}
+
+            {makeupInfo.suitsFor.length > 0 && (
+              <section className="mb-4 border border-stone/40 px-5 py-4">
+                <div className="text-[10px] uppercase tracking-[0.32em] text-mute mb-3">
+                  Passer for
+                </div>
+                <ul className="space-y-1">
+                  {makeupInfo.suitsFor.map((s) => (
+                    <li key={s} className="font-display text-sm text-soft-ink leading-relaxed">
+                      · {s}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {makeupInfo.avoidIf.length > 0 && (
+              <section className="mb-4 border-l-2 border-accent/40 pl-5 py-1">
+                <div className="text-[10px] uppercase tracking-[0.32em] text-accent mb-2">
+                  Vær oppmerksom
+                </div>
+                <ul className="space-y-1">
+                  {makeupInfo.avoidIf.map((s) => (
+                    <li key={s} className="font-display text-sm text-soft-ink leading-relaxed">
+                      · {s}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {makeupInfo.howToUse && (
+              <section className="mb-6 border border-stone/40 px-5 py-4">
+                <div className="text-[10px] uppercase tracking-[0.32em] text-mute mb-2">
+                  Slik bruker du det
+                </div>
+                <p className="font-display italic text-sm text-soft-ink leading-relaxed">
+                  {makeupInfo.howToUse}
                 </p>
               </section>
             )}

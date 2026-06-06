@@ -4,6 +4,7 @@ import { createServer } from "@/lib/supabase";
 import BottomNav from "@/components/BottomNav";
 import { buildSignal, scoreBagItem, type FitResult } from "@/lib/fit-now";
 import RemoveBagItem from "./_components/RemoveBagItem";
+import SetShadeButton from "./_components/SetShadeButton";
 
 type Tab = "all" | "foundation" | "loved" | "wishlist";
 
@@ -436,7 +437,9 @@ function ProductCard({
           </div>
           <div className="font-display italic text-xs text-soft-ink truncate">
             {item.products?.brand}
-            {item.shade_name && ` · ${item.shade_name}`}
+            {/* Prefer bag-item shade, fall back to product's shade */}
+            {(item.shade_name ?? item.products?.shade_name) &&
+              ` · ${item.shade_name ?? item.products.shade_name}`}
           </div>
           {item.status === "wishlist" && (
             <div className="text-[9px] uppercase tracking-[0.2em] text-accent mt-1">
@@ -466,8 +469,11 @@ function FoundationCard({
   const href = item.products?.id
     ? `/${locale}/products/${item.products.id}`
     : `/${locale}/bag`;
-  const bg =
-    item.shade_code ?? item.products?.attributes?.hex ?? "#D9CFC1";
+  // Prefer bag-item shade (user-set) → product shade → product name
+  const shadeName =
+    item.shade_name ?? item.products?.shade_name ?? item.products?.name ?? "Foundation";
+  const shadeCode = item.shade_code ?? item.products?.shade_code ?? null;
+  const bg = shadeCode ?? item.products?.attributes?.hex ?? "#D9CFC1";
   return (
     <div className="bg-cream px-4 py-4 flex items-center gap-4 hover:bg-stone/30 transition-colors">
       <Link href={href} className="flex items-center gap-4 flex-1 min-w-0">
@@ -476,16 +482,22 @@ function FoundationCard({
           style={{ background: bg }}
         />
         <div className="flex-1 min-w-0">
-          <div className="font-display text-base truncate">
-            {item.shade_name ?? item.products?.name ?? "Foundation"}
-          </div>
+          <div className="font-display text-base truncate">{shadeName}</div>
           <div className="font-display italic text-xs text-soft-ink truncate">
-            {item.products?.brand}
-            {item.shade_code && (
-              <span className="ml-2 text-mute">{item.shade_code}</span>
+            {item.products?.name}
+            {shadeCode && (
+              <span className="ml-2 text-mute">{shadeCode}</span>
             )}
           </div>
+          <div className="font-display italic text-xs text-mute truncate">
+            {item.products?.brand}
+          </div>
           <FitTag fit={fit} />
+          <SetShadeButton
+            itemId={item.id}
+            currentShadeName={item.shade_name ?? item.products?.shade_name}
+            currentShadeCode={item.shade_code ?? item.products?.shade_code}
+          />
         </div>
       </Link>
       {item.loved && (

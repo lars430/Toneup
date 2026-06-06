@@ -12,10 +12,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "missing productId" }, { status: 400 });
   }
 
-  // Fetch category (NOT NULL in makeup_bag_items) and verify product exists
+  // Fetch category, shade and verify product exists
   const { data: product } = await supabase
     .from("products")
-    .select("category")
+    .select("category, shade_name, shade_code")
     .eq("id", productId)
     .single();
 
@@ -42,6 +42,8 @@ export async function POST(req: Request) {
     user_id: user.id,
     product_id: productId,
     category: product.category,
+    shade_name: product.shade_name ?? null,
+    shade_code: product.shade_code ?? null,
   });
 
   if (error) {
