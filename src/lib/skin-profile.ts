@@ -1,9 +1,21 @@
 /**
- * Skin profile analysis — depth, undertone, redness (separate from undertone).
+ * Skin profile analysis — depth, undertone, redness.
  *
- * Redness is measured as deviation from the user's own base skin (forehead,
- * temples, jawline) in Lab space — not absolute RGB redness. Natural
- * pink/cool undertone on fair skin is `visible_pinkness`, not `surface_redness`.
+ * Redness is measured as deviation from the user's OWN base skin in Lab/HSV
+ * space — never as absolute RGB redness. This design makes the algorithm
+ * work equally across all skin depths:
+ *
+ *   • fair/light Nordic skin   — natural pink cast = visible_pinkness, not surface_redness
+ *   • East Asian / olive skin  — yellow/neutral cast is NOT redness
+ *   • medium skin              — moderate absolute Lab values are normal, not alarming
+ *   • tan/deep skin            — redness shows as warmth shift + L* drop, not pur R channel
+ *
+ * Key output fields:
+ *   redness_delta_from_base    — zone deviation from person's own stable skin (Lab units)
+ *   redness_region_contrast    — normalised: delta ÷ base a* — skin-depth-agnostic ratio
+ *   localized_redness_pattern  — derived from zone pattern, encoded in redness_type
+ *   confidence                 — penalised for poor WB, few regions, harsh lighting
+ *   lighting_quality           — informs caller of reliability
  */
 
 import type { Undertone } from "@/engine/types";
@@ -99,6 +111,8 @@ export interface SkinProfileDebug {
   base_skin_rgb_lab: [number, number, number];
   redness_zone_rgb_lab: Record<string, [number, number, number]>;
   redness_delta_from_base: Record<string, number>;
+  /** Normalised contrast: delta ÷ base a* — skin-depth-agnostic redness signal */
+  redness_region_contrast: Record<string, number>;
   visible_pinkness: Level;
   surface_redness: Level;
   redness_type: RednessType;
@@ -144,14 +158,16 @@ const SKIN_ANALYSIS_PROMPT = `You are a cosmetic color analyst. Return JSON only
   "confidence": 0.0-1.0
 }
 
-Redness rules (critical):
-- Do NOT treat natural pink/cool undertone on fair Scandinavian skin as high surface_redness.
-- surface_redness = zones clearly redder than the person's OWN forehead/temple/jawline base — not absolute pinkness.
-- visible_pinkness = even rosy/cool cast without localized flush zones; does NOT mean a skin problem.
-- If whole face is evenly pink with no stronger nose/cheek zones → natural_pinkness + low surface_redness.
-- Localized nose/cheeks much redder than forehead/jaw → surface_redness + flush/irritation/rosacea_like.
-- surface_redness must NOT change skin_depth or push undertone to cool.
-- For fair/fair_light/light skin, be conservative — most even pink faces are visible_pinkness low/medium, surface_redness none/low.
+Redness rules (critical — apply to ALL skin depths):
+- Redness is RELATIVE to the person's own forehead/temple/jawline base, NOT absolute RGB.
+- Do NOT treat natural pink/cool undertone as surface_redness regardless of skin depth.
+- Do NOT treat yellow/olive undertone as redness on East Asian or olive skin.
+- visible_pinkness = even rosy/cool cast with no stronger zones — natural, not a problem.
+- surface_redness = zones (nose, cheeks) clearly redder than the person's OWN base skin.
+- If whole face is evenly coloured with no zone contrast → natural_pinkness + low surface_redness.
+- Localized nose/cheeks much warmer/redder than forehead/jaw → surface_redness + flush/irritation.
+- On medium/tan/deep skin, redness may appear as warmth shift or subtle darkening, not pur RGB red.
+- surface_redness must NOT change skin_depth or push undertone classification.
 - Lower redness_confidence if lighting or white balance is poor.`;
 
 export async function analyzeSkinProfile(
@@ -298,6 +314,7 @@ export function analyzeFromCalibration(calib: CalibrationInput): SkinProfile {
       base_skin_rgb_lab: rednessAnalysis.baseLab,
       redness_zone_rgb_lab: rednessAnalysis.zoneLabs,
       redness_delta_from_base: rednessAnalysis.deltas,
+      redness_region_contrast: rednessAnalysis.regionContrast,
       visible_pinkness: rednessAnalysis.visible_pinkness,
       surface_redness: rednessAnalysis.surface_redness,
       redness_type: rednessAnalysis.redness_type,
@@ -324,6 +341,8 @@ interface RelativeRednessResult {
   baseLab: [number, number, number];
   zoneLabs: Record<string, [number, number, number]>;
   deltas: Record<string, number>;
+  /** Normalised: delta ÷ base a* — comparable across all skin depths */
+  regionContrast: Record<string, number>;
 }
 
 function analyzeRelativeRedness(
@@ -338,19 +357,24 @@ function analyzeRelativeRedness(
     if (rgb) baseSamples.push({ rgb, w: name === "forehead" ? 0.4 : 0.2 });
   }
 
-  const fallbackRgb = faceRgb;
   const baseRgb =
     baseSamples.length > 0
       ? (weightedRgb(baseSamples) as [number, number, number])
-      : fallbackRgb;
+      : faceRgb;
   const baseLab = rgbToLab(baseRgb);
+  const baseL = baseLab[0];
+
+  // Continuous thresholds scaled to the person's own skin depth.
+  const thresholds = rednessThresholds(baseL);
 
   const zoneLabs: Record<string, [number, number, number]> = {};
   const deltas: Record<string, number> = {};
+  const regionContrast: Record<string, number> = {};
   const elevatedZones: string[] = [];
 
-  const isLightBase = baseLab[0] > 62;
-  const thresholds = rednessThresholds(isLightBase);
+  // Normalisation base for contrast: use the base skin's own a* level.
+  // A delta equal to the base a* means the zone is "as different as the skin itself is chromatic."
+  const baseAstar = Math.max(2, baseLab[1]);
 
   for (const name of REDNESS_ZONE_KEYS) {
     const rgb = regions[name];
@@ -359,15 +383,12 @@ function analyzeRelativeRedness(
     zoneLabs[name] = lab;
     const delta = rednessDeltaFromBase(lab, baseLab);
     deltas[name] = round2(delta);
+    regionContrast[name] = round2(delta / baseAstar);
     if (delta >= thresholds.zoneElevated) elevatedZones.push(name);
   }
 
   const zoneDeltaVals = Object.values(deltas);
   const maxDelta = zoneDeltaVals.length ? Math.max(...zoneDeltaVals) : 0;
-  const avgZoneDelta =
-    zoneDeltaVals.length > 0
-      ? zoneDeltaVals.reduce((a, b) => a + b, 0) / zoneDeltaVals.length
-      : 0;
 
   const allLabs = [...baseSamples.map((s) => rgbToLab(s.rgb)), ...Object.values(zoneLabs)];
   const aSpread =
@@ -375,16 +396,15 @@ function analyzeRelativeRedness(
       ? stdDev(allLabs.map((l) => l[1]))
       : maxDelta;
 
-  const visible_pinkness = classifyVisiblePinkness(baseLab, isLightBase);
+  const visible_pinkness = classifyVisiblePinkness(baseLab);
   const { surface_redness, redness_regions, redness_type } = classifySurfaceRedness({
     maxDelta,
-    avgZoneDelta,
     aSpread,
     elevatedZones,
     visible_pinkness,
     deltas,
     thresholds,
-    isLightBase,
+    baseL,
   });
 
   let redness_confidence = 0.85;
@@ -406,65 +426,91 @@ function analyzeRelativeRedness(
     baseLab,
     zoneLabs,
     deltas,
+    regionContrast,
   };
 }
 
-function rednessThresholds(lightSkin: boolean) {
-  if (lightSkin) {
-    return {
-      zoneElevated: 11,
-      surfaceLow: 7,
-      surfaceMedium: 12,
-      surfaceHigh: 18,
-      evenPinkSpread: 5.5,
-    };
-  }
+/**
+ * Thresholds that scale continuously with base skin lightness (L*).
+ *
+ * Darker skin → smaller absolute Lab shift needed to flag a zone, because
+ * redness on dark skin is a subtler shift (warmth, slight darkening) rather
+ * than a large a* spike. This prevents BOTH false negatives on dark skin
+ * AND false positives from natural chromaticity on medium skin.
+ *
+ * Scale: 0.65 at L*=35 (deep) → 1.0 at L*=80 (fair).
+ */
+function rednessThresholds(baseL: number) {
+  const t = clamp01((baseL - 35) / 45); // 0 at L=35, 1 at L=80
+  const s = 0.65 + t * 0.35;            // 0.65 → 1.0
+
   return {
-    zoneElevated: 8,
-    surfaceLow: 5,
-    surfaceMedium: 9,
-    surfaceHigh: 14,
-    evenPinkSpread: 4,
+    zoneElevated:  9  * s,  // 5.9–9.0
+    surfaceLow:    6  * s,  // 3.9–6.0
+    surfaceMedium: 10 * s,  // 6.5–10.0
+    surfaceHigh:   15 * s,  // 9.8–15.0
+    evenPinkSpread: 5 * s,  // 3.3–5.0
   };
 }
 
-/** Deviation in Lab — a* weighted (red-green) */
+/**
+ * Redness delta — measures how much redder/warmer a zone is compared to the
+ * person's own base skin in Lab space.
+ *
+ * Adaptive behaviour:
+ *   • Light skin (L* > 65): a* is the dominant signal; b* contributes modestly.
+ *   • Medium skin (50 < L* ≤ 65): b* weighted more; redness shows as warmth shift.
+ *   • Dark/deep skin (L* ≤ 50): b* and mild L* drop (zone darkening) both count.
+ *
+ * This prevents high-R RGB from being treated as redness on light skin AND
+ * ensures subtle warmth-shifts on dark skin are still detected.
+ */
 function rednessDeltaFromBase(
-  zone: [number, number, number],
-  base: [number, number, number]
+  zone: [number, number, number],  // Lab of zone
+  base: [number, number, number],  // Lab of stable base skin
 ): number {
-  const da = zone[1] - base[1];
-  const db = zone[2] - base[2];
-  return Math.sqrt(da * da + db * db * 0.25);
+  const da = zone[1] - base[1];   // a* increase → redder / more saturated
+  const db = zone[2] - base[2];   // b* shift (warm vs cool)
+  const dL = base[0] - zone[0];   // L* drop (zone darker than base)
+  const baseL = base[0];
+
+  const bWeight = baseL < 50 ? 0.5 : baseL < 65 ? 0.35 : 0.2;
+  const lSignal = baseL < 58 ? Math.max(0, dL) * 0.35 : 0;
+
+  return Math.sqrt(da * da + db * db * bWeight) + lSignal;
 }
 
-function classifyVisiblePinkness(
-  baseLab: [number, number, number],
-  lightSkin: boolean
-): Level {
-  const a = baseLab[1];
-  const b = baseLab[2];
-  if (lightSkin) {
-    if (a < 6) return "none";
-    if (a < 9) return "low";
-    if (a < 13) return "medium";
-    return "high";
-  }
-  if (a < 8) return "none";
-  if (a < 11) return "low";
-  if (a < 15) return "medium";
+/**
+ * Visible pinkness — the skin's overall pink/rosy cast from base zones.
+ *
+ * Normalised relative to the skin's own yellow (b*) component so that:
+ *   • A warm/yellow East Asian base (high b*, moderate a*) reads as low pinkness.
+ *   • A cool/rosy Nordic base (high a* relative to b*) reads as medium/high pinkness.
+ *   • A neutral medium base reads proportionally.
+ *
+ * This makes visible_pinkness a true undertone signal, not a depth artefact.
+ */
+function classifyVisiblePinkness(baseLab: [number, number, number]): Level {
+  const [, a, b] = baseLab;
+  // Expected a* for a neutral-warm skin given its b* level.
+  // Excess above this expectation = visible pink cast.
+  const expectedA = Math.max(2, b * 0.6);
+  const excess = a - expectedA;
+
+  if (excess < 2) return "none";
+  if (excess < 5) return "low";
+  if (excess < 9) return "medium";
   return "high";
 }
 
 function classifySurfaceRedness(ctx: {
   maxDelta: number;
-  avgZoneDelta: number;
   aSpread: number;
   elevatedZones: string[];
   visible_pinkness: Level;
   deltas: Record<string, number>;
   thresholds: ReturnType<typeof rednessThresholds>;
-  isLightBase: boolean;
+  baseL: number;
 }): {
   surface_redness: Level;
   redness_regions: string[];
@@ -472,17 +518,17 @@ function classifySurfaceRedness(ctx: {
 } {
   const {
     maxDelta,
-    avgZoneDelta,
     aSpread,
     elevatedZones,
     visible_pinkness,
     deltas,
     thresholds,
-    isLightBase,
+    baseL,
   } = ctx;
 
   const redness_regions = mapRednessRegions(elevatedZones);
 
+  // Even cast: small inter-zone spread and no large max delta → natural pinkness only.
   const evenPink =
     aSpread <= thresholds.evenPinkSpread &&
     maxDelta < thresholds.surfaceMedium &&
@@ -492,8 +538,7 @@ function classifySurfaceRedness(ctx: {
     return {
       surface_redness: maxDelta >= thresholds.surfaceLow * 0.85 ? "low" : "none",
       redness_regions: [],
-      redness_type:
-        visible_pinkness === "none" ? "none" : "natural_pinkness",
+      redness_type: visible_pinkness === "none" ? "none" : "natural_pinkness",
     };
   }
 
@@ -509,18 +554,21 @@ function classifySurfaceRedness(ctx: {
   if (maxDelta >= thresholds.surfaceHigh) surface_redness = "high";
   else if (maxDelta >= thresholds.surfaceMedium) surface_redness = "medium";
 
-  const noseHigh = (deltas.nose ?? 0) >= thresholds.surfaceMedium;
+  const noseHigh   = (deltas.nose   ?? 0) >= thresholds.surfaceMedium;
   const cheeksHigh =
     (deltas.cheekL ?? 0) >= thresholds.surfaceMedium ||
     (deltas.cheekR ?? 0) >= thresholds.surfaceMedium;
   const central = noseHigh && cheeksHigh;
 
+  // rosacea_like is a clinically lighter-skin pattern (L* > 65).
+  // On deeper skin the same pattern is classified as flush/irritation.
+  const isLighter = baseL > 65;
+
   let redness_type: RednessType = "uncertain";
   if (surface_redness === "low" && !central) {
     redness_type = elevatedZones.length ? "flush" : "natural_pinkness";
   } else if (central && surface_redness !== "low") {
-    redness_type =
-      surface_redness === "high" && isLightBase ? "rosacea_like" : "flush";
+    redness_type = surface_redness === "high" && isLighter ? "rosacea_like" : "flush";
   } else if (elevatedZones.length >= 2 && surface_redness !== "low") {
     redness_type = "irritation";
   } else if (elevatedZones.length === 1) {
